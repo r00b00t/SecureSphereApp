@@ -1,0 +1,72 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+*.lock
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IDEs
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/  # Optional, include if you don’t want to track editor config
+
+# Flutter/Dart/Pub related
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter-version
+**/doc/api/
+**/ios/Flutter/.last_build_id
+
+# Android
+android/.gradle/
+android/app/build/
+*.jks  # Keystore files, never commit!
+
+# iOS
+ios/Pods/
+ios/Runner.xcworkspace/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/.symlinks/
+ios/Flutter/App.framework
+ios/Flutter/engine/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Firebase/Keys (if applicable)
+google-services.json
+GoogleService-Info.plist
+.env
+
+# macOS
+macos/Flutter/ephemeral/
+
+# Web
+web/.dart_tool/
+web/.packages
+web/build/
+
+# Linux
+linux/flutter/ephemeral/
+
+# Windows
+windows/flutter/ephemeral/
