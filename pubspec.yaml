@@ -1,0 +1,77 @@
+name: securesphere
+description: A decentralized, privacy-focused password manager with seed phrase authentication.
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  uuid: ^3.0.7
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_secure_storage: ^8.0.0
+  bip39: ^1.0.6
+  encrypt: ^5.0.1
+  local_auth: ^2.1.5
+  get: ^4.6.5
+  flutter_svg: ^2.0.7
+  intl: ^0.18.1
+  shared_preferences: ^2.2.0
+  crypto: ^3.0.3
+  http: ^1.4.0
+  app_links: ^3.4.3
+  url_launcher: ^6.1.12
+  file_picker: ^10.2.0
+  path_provider: ^2.1.1
+  path: ^1.8.3
+  share_plus: ^11.0.0
+  media_scanner: ^2.1.0
+  permission_handler: ^11.3.1
+  desktop_drop: ^0.6.1
+  cross_file: ^0.3.3
+
+  cupertino_icons: ^1.0.2
+  bip32: ^2.0.0
+  hex: ^0.2.0
+  sha3: ^0.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  hive_generator: ^1.1.3
+  build_runner: ^2.4.6
+  dart_code_metrics: 4.19.2
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.3.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/svgs/
+    - assets/icon/
+    - assets/splash/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/icon.png"
+
+flutter_native_splash:
+  color: "#000000"
+  image: assets/splash/splash.png
+  image_dark: assets/splash/splash.png
+  color_dark: "#000000"
+  android: true
+  ios: true
+  web: false
+  android_gravity: center
+  ios_content_mode: center
+  fullscreen: true

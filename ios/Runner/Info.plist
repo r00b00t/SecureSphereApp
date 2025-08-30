@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>$(DEVELOPMENT_LANGUAGE)</string>
+		<key>CFBundleDisplayName</key>
+		<string>Securesphere</string>
+		<key>CFBundleExecutable</key>
+		<string>$(EXECUTABLE_NAME)</string>
+		<key>CFBundleIdentifier</key>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>securesphere</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>$(FLUTTER_BUILD_NAME)</string>
+		<key>CFBundleSignature</key>
+		<string>????</string>
+		<key>CFBundleVersion</key>
+		<string>$(FLUTTER_BUILD_NUMBER)</string>
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>UISupportedInterfaceOrientations~ipad</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+			<string>UIInterfaceOrientationPortraitUpsideDown</string>
+			<string>UIInterfaceOrientationLandscapeLeft</string>
+			<string>UIInterfaceOrientationLandscapeRight</string>
+		</array>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
+		<key>UIStatusBarHidden</key>
+		<true/>
+		<!-- Face ID / Touch ID Permission -->
+		<key>NSFaceIDUsageDescription</key>
+		<string>SecureSphere uses Face ID for secure authentication to protect your passwords and files.</string>
+		<!-- Photo Library Access (for file_picker) -->
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>SecureSphere needs access to your photo library to allow you to select and upload images to your secure vault.</string>
+		<!-- Camera Access (for file_picker) -->
+		<key>NSCameraUsageDescription</key>
+		<string>SecureSphere needs camera access to allow you to take photos and upload them to your secure vault.</string>
+		<!-- Local Network Access (for SIA connectivity) -->
+		<key>NSLocalNetworkUsageDescription</key>
+		<string>SecureSphere needs local network access to connect to SIA storage nodes for decentralized file storage.</string>
+		<!-- Documents Folder Access -->
+		<key>LSSupportsOpeningDocumentsInPlace</key>
+		<true/>
+		<key>UIFileSharingEnabled</key>
+		<true/>
+		<!-- URL Schemes for app_links -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleURLName</key>
+				<string>securesphere.deeplink</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>securesphere</string>
+				</array>
+			</dict>
+		</array>
+		<!-- Background App Refresh -->
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>background-processing</string>
+		</array>
+		<!-- File Types Support -->
+		<key>UTExportedTypeDeclarations</key>
+		<array>
+			<dict>
+				<key>UTTypeConformsTo</key>
+				<array>
+					<string>public.data</string>
+				</array>
+				<key>UTTypeDescription</key>
+				<string>SecureSphere File</string>
+				<key>UTTypeIdentifier</key>
+				<string>com.securesphere.file</string>
+				<key>UTTypeTagSpecification</key>
+				<dict>
+					<key>public.filename-extension</key>
+					<array>
+						<string>ssp</string>
+					</array>
+				</dict>
+			</dict>
+		</array>
+		<key>UIViewControllerBasedStatusBarAppearance</key>
+		<false/>
+	</dict>
+</plist>
