@@ -6,7 +6,8 @@ import 'dart:io';
 import 'package:securesphere/features/vault/models/file_model.dart';
 import 'package:securesphere/features/vault/repositories/file_repository.dart';
 import 'package:securesphere/features/vault/screens/file_detail_screen.dart';
-
+import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:securesphere/features/sia/services/sia_service.dart';
 import 'package:securesphere/features/sia/screens/sia_password_required_screen.dart';
 import 'package:securesphere/features/auth/services/security_service.dart';
@@ -48,6 +49,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   }
 
   Future<void> _checkInitialSiaAccess() async {
+    // Check if SIA access is available before loading files - same as mobile
     final hasAccess = await _checkSiaConnectivity();
     if (hasAccess) {
       _loadFiles();
@@ -100,6 +102,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         }
       }
     } catch (e) {
+      debugPrint('VAULT: Error checking SIA password state: $e');
     }
     
     return true;
@@ -193,10 +196,12 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       
       _sortFiles();
     } catch (e) {
+      debugPrint('Error loading files: $e');
       setState(() {
         _isLoading = false;
       });
       
+      // Check if the error is SIA-related and provide appropriate message
       final errorMessage = e.toString();
       final isSiaError = !_fileRepo.isSiaUploadAvailable || 
                         errorMessage.contains('SIA') || 
@@ -300,6 +305,113 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
     FocusScope.of(context).unfocus();
   }
 
+  Future<void> _shareFile(FileModel file) async {
+    try {
+      // Check if file needs to be downloaded first
+      if (file.tags.contains('sia-vault') && file.path.isEmpty) {
+        // Show dialog to download first
+        final shouldDownload = await Get.dialog<bool>(
+          AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: const Text('Download Required', style: TextStyle(color: Colors.white)),
+            content: const Text(
+              'This file needs to be downloaded from SIA vault before sharing. Would you like to download it now?',
+              style: TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Get.back(result: false),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                onPressed: () => Get.back(result: true),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF34A853)),
+                child: const Text('Download & Share'),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldDownload != true) return;
+        
+        // Download the file first
+        await _downloadFile(file);
+        
+        // After download, reload to get updated file with local path
+        await _loadFiles();
+        final updatedFile = _files.firstWhere(
+          (f) => f.id == file.id,
+          orElse: () => file,
+        );
+        
+        if (updatedFile.path.isEmpty) {
+          Get.snackbar(
+            'Error',
+            'Could not locate downloaded file. Please try downloading again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red.withOpacity(0.8),
+            colorText: Colors.white,
+          );
+          return;
+        }
+        
+        // Share the downloaded file
+        final rect = Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, MediaQuery.of(context).size.height / 2);
+        await Share.shareXFiles(
+          [XFile(updatedFile.path)],
+          text: 'Sharing file: ${updatedFile.name}',
+          subject: updatedFile.name,
+          sharePositionOrigin: rect,
+        );
+      } else if (file.path.isNotEmpty) {
+        // File is already local, share directly
+        final fileObj = File(file.path);
+        if (await fileObj.exists()) {
+          final rect = Rect.fromLTWH(0, 0, MediaQuery.of(context).size.width, MediaQuery.of(context).size.height / 2);
+          await Share.shareXFiles(
+            [XFile(file.path)],
+            text: 'Sharing file: ${file.name}',
+            subject: file.name,
+            sharePositionOrigin: rect,
+          );
+          
+          Get.snackbar(
+            'Sharing',
+            'Share dialog opened for ${file.name}',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+          );
+        } else {
+          Get.snackbar(
+            'Error',
+            'File not found locally. Please download it first.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red.withOpacity(0.8),
+            colorText: Colors.white,
+          );
+        }
+      } else {
+        Get.snackbar(
+          'Error',
+          'Unable to share this file. Please download it first.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.withOpacity(0.8),
+          colorText: Colors.white,
+        );
+      }
+    } catch (e) {
+      Get.snackbar(
+        'Share Error',
+        'Failed to share file: $e',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.withOpacity(0.8),
+        colorText: Colors.white,
+      );
+    }
+  }
+
   void _uploadFile() async {
     if (_isUploading) return;
 
@@ -308,6 +420,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       final securityService = Get.find<SecurityService>();
       await securityService.markUserActive();
     } catch (e) {
+      print('Could not access SecurityService: $e');
     }
 
     // Check SIA connectivity before uploading
@@ -543,18 +656,24 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                             await directory.create(recursive: true);
                           }
                           await entity.copy(outputPath);
+                          debugPrint('🎯 COPIED temp file: ${entity.path} → $outputPath');
                         } catch (e) {
+                          debugPrint('❌ Error copying temp file: $e');
                         }
                       }();
                       
+                      capturedTempFile = outputPath; // Store the target location
+                      debugPrint('🎯 INTERCEPTED temp file: ${entity.path}');
                     } else {
                       capturedTempFile = entity.path;
+                      debugPrint('🎯 INTERCEPTED temp file: $capturedTempFile');
                     }
                     break;
                   }
                 }
               }
             } catch (e) {
+              debugPrint('❌ Error intercepting temp file: $e');
             }
           }
         },
@@ -602,6 +721,9 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
 
   Future<void> _handleDownloadedFile(FileModel file, String outputFile, String downloadsPath, [String? capturedTempFile]) async {
     try {
+      debugPrint('🎯 Starting download file handling...');
+      debugPrint('📁 Target output: $outputFile');
+      debugPrint('🔐 Captured temp file: $capturedTempFile');
       
       File? sourceFile;
       
@@ -610,7 +732,9 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         final tempFile = File(capturedTempFile);
         if (await tempFile.exists()) {
           sourceFile = tempFile;
+          debugPrint('✅ Using captured temp file: $capturedTempFile');
         } else {
+          debugPrint('❌ Captured temp file no longer exists: $capturedTempFile');
         }
       }
       
@@ -632,10 +756,13 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
           }
         }
         
+        debugPrint('🔍 Checking possible download locations:');
         for (String location in possibleLocations) {
+          debugPrint('  - $location');
           final testFile = File(location);
           if (await testFile.exists()) {
             sourceFile = testFile;
+            debugPrint('✅ Found file at: $location');
             break;
           }
         }
@@ -644,16 +771,20 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       // If we found a source file, move it to the target location
       if (sourceFile != null) {
         if (sourceFile.path != outputFile) {
+          debugPrint('📁 Copying file from ${sourceFile.path} to $outputFile');
           await sourceFile.copy(outputFile);
           
           // Clean up source file if it was a temp file
           if (sourceFile.path.contains('Temp') || sourceFile.path == capturedTempFile) {
             try {
               await sourceFile.delete();
+              debugPrint('✅ Cleaned up temp file: ${sourceFile.path}');
             } catch (e) {
+              debugPrint('⚠️ Could not clean up temp file: $e');
             }
           }
         } else {
+          debugPrint('✅ File already in correct location');
         }
         
         // Show success message
@@ -675,11 +806,14 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       }
       
       // If not found in expected locations, look in temp directory
+      debugPrint('🔍 File not found in expected locations, searching temp directory...');
       File? downloadedFile;
       final tempDir = Directory.systemTemp;
       
       try {
         final tempFiles = tempDir.listSync();
+        debugPrint('📁 Temp directory: ${tempDir.path}');
+        debugPrint('📄 Looking for patterns: ${file.name}, ${file.siaFilename}, ${path.basenameWithoutExtension(file.name)}');
         
         List<File> encryptedFiles = [];
         for (final entity in tempFiles) {
@@ -687,27 +821,33 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
             final filename = path.basename(entity.path);
             if (filename.startsWith('encrypted_')) {
               encryptedFiles.add(entity);
+              debugPrint('🔐 Found encrypted file: $filename');
               
+              // Check if this file matches our target
               if (filename.contains(file.name) || 
                   filename.contains(file.siaFilename ?? '') ||
                   filename.contains(path.basenameWithoutExtension(file.name)) ||
                   filename.contains(file.id)) {
                 downloadedFile = entity;
+                debugPrint('✅ Matched temp file: ${entity.path}');
                 break;
               }
             }
           }
         }
         
+        debugPrint('📊 Total encrypted files found: ${encryptedFiles.length}');
         
         // If no specific match, try the most recent encrypted file
         if (downloadedFile == null && encryptedFiles.isNotEmpty) {
           // Sort by modification time and take the most recent
           encryptedFiles.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
           downloadedFile = encryptedFiles.first;
+          debugPrint('🎯 Using most recent encrypted file: ${downloadedFile.path}');
         }
         
       } catch (e) {
+        debugPrint('❌ Error searching temp directory: $e');
       }
       
       if (downloadedFile != null) {
@@ -717,7 +857,9 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         // Clean up the temporary file
         try {
           await downloadedFile.delete();
+          debugPrint('✅ Cleaned up temp file: ${downloadedFile.path}');
         } catch (e) {
+          debugPrint('Could not clean up temporary file: $e');
         }
         
         // Show success message
@@ -737,6 +879,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         );
               } else {
           // Last resort: comprehensive search of Downloads directory
+          debugPrint('🔍 No temp file found, doing comprehensive Downloads search...');
           
           if (Platform.isWindows) {
             final userProfile = Platform.environment['USERPROFILE'] ?? '';
@@ -750,18 +893,23 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                 try {
                   final directory = Directory(dir);
                   if (await directory.exists()) {
+                    debugPrint('🔍 Searching in: $dir');
                     final files = directory.listSync();
                     for (final entity in files) {
                       if (entity is File) {
                         final filename = path.basename(entity.path);
+                        debugPrint('  📄 Found: $filename');
                         
+                        // Check if this matches our file
                         if (filename == file.name ||
                             filename.contains(path.basenameWithoutExtension(file.name)) ||
                             filename.contains(file.id)) {
+                          debugPrint('✅ Found matching file: ${entity.path}');
                           
                           // Move to our target location if different
                           if (entity.path != outputFile) {
                             await entity.copy(outputFile);
+                            debugPrint('📁 Copied to: $outputFile');
                           }
                           
                           Get.snackbar(
@@ -784,12 +932,14 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                     }
                   }
                 } catch (e) {
+                  debugPrint('❌ Error searching $dir: $e');
                 }
               }
             }
           }
           
           // If still not found, show generic success message
+          debugPrint('⚠️ File download completed but location unclear');
           Get.snackbar(
             'Download Complete',
             'File downloaded successfully. Check Downloads/SecureSphere folder.',
@@ -807,6 +957,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         }
       
     } catch (e) {
+      debugPrint('Download handling error: $e');
       Get.snackbar(
         'Download Warning',
         'File was downloaded but could not be moved to Downloads/SecureSphere folder.',
@@ -827,6 +978,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   void _openFileLocation(String filePath) {
     try {
       if (Platform.isWindows) {
+        // Check if it's a file or directory
         final file = File(filePath);
         final directory = Directory(filePath);
         
@@ -857,6 +1009,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         });
       }
     } catch (e) {
+      debugPrint('Could not open file location: $e');
     }
   }
 
@@ -1471,6 +1624,16 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                   ),
                 ),
                 const PopupMenuItem(
+                  value: 'share',
+                  child: Row(
+                    children: [
+                      Icon(Icons.share, color: Color(0xFFF39C12)),
+                      SizedBox(width: 8),
+                      Text('Share'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
@@ -1484,6 +1647,8 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
               onSelected: (value) {
                 if (value == 'download') {
                   _downloadFile(file);
+                } else if (value == 'share') {
+                  _shareFile(file);
                 } else if (value == 'delete') {
                   _deleteFile(file);
                 }
@@ -1585,6 +1750,22 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                       icon: const Icon(Icons.download),
                       label: const Text('Download'),
                       style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 40),
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  Tooltip(
+                    message: 'Share File',
+                    child: OutlinedButton.icon(
+                      onPressed: () => _shareFile(_selectedFile!),
+                      icon: const Icon(Icons.share),
+                      label: const Text('Share'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFF39C12),
+                        side: const BorderSide(color: Color(0xFFF39C12)),
                         minimumSize: const Size(double.infinity, 40),
                       ),
                     ),

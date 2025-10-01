@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
+import 'dart:io';
 import '../models/file_model.dart';
 import '../repositories/file_repository.dart';
 import '../utils/file_utils.dart';
@@ -36,6 +39,7 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 
   Future<void> _checkInitialSiaAccess() async {
+    // Check if SIA password is missing for display purposes
     try {
       final prefs = await SharedPreferences.getInstance();
       final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
@@ -53,11 +57,13 @@ class _VaultScreenState extends State<VaultScreen> {
         });
       }
     } catch (e) {
+      print('VAULT: Error checking SIA password state: $e');
       setState(() {
         _isPasswordMissing = false;
       });
     }
     
+    // Check if SIA access is available before loading files
     final hasAccess = await _checkSiaConnectivity();
     if (hasAccess) {
       _loadFiles();
@@ -115,16 +121,19 @@ class _VaultScreenState extends State<VaultScreen> {
               onPressed: () {
                 Get.back(); // Close snackbar
                 try {
+                  print('VAULT: Snackbar - attempting direct navigation to SIA password screen');
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => const SiaPasswordRequiredScreen(),
                     ),
                   );
                 } catch (e) {
+                  print('VAULT: Snackbar navigation error: $e');
                   // Fallback
                   try {
                     Get.to(() => const SiaPasswordRequiredScreen());
                   } catch (e2) {
+                    print('VAULT: Snackbar Get.to also failed: $e2');
                   }
                 }
               },
@@ -135,6 +144,7 @@ class _VaultScreenState extends State<VaultScreen> {
         }
       }
     } catch (e) {
+      print('VAULT: Error checking SIA password: $e');
     }
     
     return true;
@@ -177,6 +187,7 @@ class _VaultScreenState extends State<VaultScreen> {
         _isLoading = false;
       });
       
+      // Check if the error is SIA-related and provide appropriate message
       final errorMessage = e.toString();
       final isSiaError = !_fileRepo.isSiaUploadAvailable || 
                         errorMessage.contains('SIA') || 
@@ -303,6 +314,7 @@ class _VaultScreenState extends State<VaultScreen> {
       Get.dialog(
         StatefulBuilder(
           builder: (context, setDialogState) {
+            dialogSetState = setDialogState; // Store the setState function
             return AlertDialog(
               backgroundColor: const Color(0xFF1E1E1E),
               title: const Text('Downloading File', style: TextStyle(color: Colors.white)),
@@ -348,6 +360,7 @@ class _VaultScreenState extends State<VaultScreen> {
             progressMessage = 'Download complete!';
           }
           
+          // Update the dialog without recreating it
           if (dialogSetState != null) {
             dialogSetState!(() {});
           }
@@ -418,6 +431,109 @@ class _VaultScreenState extends State<VaultScreen> {
       duration: const Duration(seconds: 3),
       icon: const Icon(Icons.check_circle, color: Colors.white),
     );
+  }
+
+  Future<void> _shareFile(FileModel file) async {
+    try {
+      // Check if file needs to be downloaded first
+      if (file.tags.contains('sia-vault') && file.path.isEmpty) {
+        // Show dialog to download first
+        final shouldDownload = await Get.dialog<bool>(
+          AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: const Text('Download Required', style: TextStyle(color: Colors.white)),
+            content: const Text(
+              'This file needs to be downloaded from SIA vault before sharing. Would you like to download it now?',
+              style: TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Get.back(result: false),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                onPressed: () => Get.back(result: true),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF34A853)),
+                child: const Text('Download & Share'),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldDownload != true) return;
+        
+        // Download the file first
+        await _downloadFromSia(file);
+        
+        // After download, reload to get updated file with local path
+        await _loadFiles();
+        final updatedFile = _files.firstWhere(
+          (f) => f.id == file.id,
+          orElse: () => file,
+        );
+        
+        if (updatedFile.path.isEmpty) {
+          Get.snackbar(
+            'Error',
+            'Could not locate downloaded file. Please try downloading again.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red.withValues(alpha: 0.8),
+            colorText: Colors.white,
+          );
+          return;
+        }
+        
+        // Share the downloaded file
+        await Share.shareXFiles(
+          [XFile(updatedFile.path)],
+          text: 'Sharing file: ${updatedFile.name}',
+          subject: updatedFile.name,
+        );
+      } else if (file.path.isNotEmpty) {
+        // File is already local, share directly
+        final fileObj = File(file.path);
+        if (await fileObj.exists()) {
+          await Share.shareXFiles(
+            [XFile(file.path)],
+            text: 'Sharing file: ${file.name}',
+            subject: file.name,
+          );
+          
+          Get.snackbar(
+            'Sharing',
+            'Share dialog opened for ${file.name}',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: const Color(0xFF34A853).withValues(alpha: 0.8),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+          );
+        } else {
+          Get.snackbar(
+            'Error',
+            'File not found locally. Please download it first.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red.withValues(alpha: 0.8),
+            colorText: Colors.white,
+          );
+        }
+      } else {
+        Get.snackbar(
+          'Error',
+          'Unable to share this file. Please download it first.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.withValues(alpha: 0.8),
+          colorText: Colors.white,
+        );
+      }
+    } catch (e) {
+      Get.snackbar(
+        'Share Error',
+        'Failed to share file: $e',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.withValues(alpha: 0.8),
+        colorText: Colors.white,
+      );
+    }
   }
 
   @override
@@ -619,16 +735,19 @@ class _VaultScreenState extends State<VaultScreen> {
                   ElevatedButton(
                     onPressed: () {
                       try {
+                        print('VAULT: Attempting direct navigation to SIA password screen');
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (context) => const SiaPasswordRequiredScreen(),
                           ),
                         );
                       } catch (e) {
+                        print('VAULT: Direct navigation error: $e');
                         // Last resort - use Get.to with widget
                         try {
                           Get.to(() => const SiaPasswordRequiredScreen());
                         } catch (e2) {
+                          print('VAULT: Get.to also failed: $e2');
                         }
                       }
                     },
@@ -797,6 +916,16 @@ class _VaultScreenState extends State<VaultScreen> {
                                     ),
                                   ),
                                 const PopupMenuItem(
+                                  value: 'share',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.share, color: Color(0xFFF39C12)),
+                                      SizedBox(width: 8),
+                                      Text('Share', style: TextStyle(color: Colors.white)),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
                                   value: 'delete',
                                   child: Row(
                                     children: [
@@ -819,6 +948,8 @@ class _VaultScreenState extends State<VaultScreen> {
                                   }
                                 } else if (value == 'download') {
                                   await _downloadFromSia(file);
+                                } else if (value == 'share') {
+                                  await _shareFile(file);
                                 } else if (value == 'delete') {
                                   _showDeleteDialog(file);
                                 }

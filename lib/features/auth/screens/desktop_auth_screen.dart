@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:securesphere/features/auth/services/auth_service.dart';
+import 'package:securesphere/features/auth/services/qr_login_service.dart';
 import 'package:securesphere/features/auth/screens/pin_setup_screen.dart';
 import 'package:securesphere/features/auth/screens/seed_phrase_screen.dart';
 
@@ -15,6 +17,7 @@ class DesktopAuthScreen extends StatefulWidget {
 class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   final AuthService _authService = Get.find();
   final PageController _pageController = PageController();
+  late final QrLoginService _qrLoginService;
   
   bool _isLoading = false;
   int _currentStep = 0;
@@ -23,13 +26,19 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   final _seedPhraseController = TextEditingController();
   final _seedPhraseFocusNode = FocusNode();
   
+  // Create account form
   final _createSeedController = TextEditingController();
   bool _seedPhraseVisible = false;
   bool _isCreatingAccount = false;
+  
+  // QR code login
+  bool _showQrLogin = false;
+  String? _qrData;
 
   @override
   void initState() {
     super.initState();
+    _qrLoginService = Get.put(QrLoginService());
     _setupKeyboardShortcuts();
     _checkExistingUser();
   }
@@ -81,6 +90,7 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
         });
       }
     } catch (e) {
+      debugPrint('Error checking existing user: $e');
     }
   }
 
@@ -143,6 +153,7 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       });
 
       if (success) {
+        // Check if PIN setup is needed (simplified check)
         final hasPin = await _authService.checkLoginStatus();
         if (hasPin) {
           Get.offAllNamed('/home');
@@ -209,6 +220,38 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       snackPosition: SnackPosition.BOTTOM,
       duration: const Duration(seconds: 2),
     );
+  }
+
+  Future<void> _generateQrCode() async {
+    setState(() {
+      _isLoading = true;
+      _showQrLogin = true;
+    });
+
+    final qrData = await _qrLoginService.generateQrSession();
+    
+    setState(() {
+      _qrData = qrData;
+      _isLoading = false;
+    });
+
+    if (qrData == null) {
+      Get.snackbar(
+        'Error',
+        'Failed to generate QR code. Please try again.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      setState(() {
+        _showQrLogin = false;
+      });
+    }
+  }
+
+  void _cancelQrLogin() {
+    setState(() {
+      _showQrLogin = false;
+      _qrData = null;
+    });
   }
 
   @override
@@ -407,6 +450,11 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   }
 
   Widget _buildWelcomePage() {
+    // Show QR code login screen if enabled
+    if (_showQrLogin) {
+      return _buildQrLoginScreen();
+    }
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -565,6 +613,22 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
         
         const SizedBox(height: 24),
         
+        // QR Code Login Button (only show for login, not account creation)
+        if (!_isCreatingAccount) ...[
+          OutlinedButton.icon(
+            onPressed: _generateQrCode,
+            icon: const Icon(Icons.qr_code_scanner, size: 20),
+            label: const Text('Login with Mobile App'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        
         // Footer info
         Text(
           'Powered by blockchain technology and end-to-end encryption',
@@ -575,6 +639,137 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
           textAlign: TextAlign.center,
         ),
       ],
+    );
+  }
+
+  Widget _buildQrLoginScreen() {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 20),
+          const Text(
+            'Scan QR Code',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          
+          const SizedBox(height: 8),
+          
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Open the mobile app and scan this QR code to log in',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white70,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          
+          const SizedBox(height: 24),
+          
+          if (_isLoading)
+            const CircularProgressIndicator()
+          else if (_qrData != null)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: QrImageView(
+                data: _qrData!,
+                version: QrVersions.auto,
+                size: 220,
+                backgroundColor: Colors.white,
+              ),
+            ),
+          
+          const SizedBox(height: 24),
+        
+        Obx(() {
+          final status = _qrLoginService.sessionStatus.value;
+          String statusText = 'Waiting for mobile app to scan...';
+          Color statusColor = Colors.white70;
+          
+          switch (status) {
+            case QrSessionStatus.waitingForScan:
+              statusText = 'Waiting for mobile app to scan...';
+              statusColor = Colors.white70;
+              break;
+            case QrSessionStatus.authenticated:
+              statusText = 'Authenticated! Logging in...';
+              statusColor = const Color(0xFF34A853);
+              break;
+            case QrSessionStatus.loggingIn:
+              statusText = 'Logging in...';
+              statusColor = const Color(0xFF34A853);
+              break;
+            case QrSessionStatus.error:
+              statusText = 'Authentication failed';
+              statusColor = Colors.red;
+              break;
+            default:
+              break;
+          }
+          
+          return Column(
+            children: [
+              Icon(
+                status == QrSessionStatus.authenticated || status == QrSessionStatus.loggingIn
+                    ? Icons.check_circle_outline
+                    : status == QrSessionStatus.error
+                        ? Icons.error_outline
+                        : Icons.phone_android,
+                color: statusColor,
+                size: 28,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                statusText,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: statusColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          );
+        }),
+        
+        const SizedBox(height: 24),
+        
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: OutlinedButton(
+            onPressed: _cancelQrLogin,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text('Back to Seed Phrase Login'),
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        Text(
+          'QR code expires in 5 minutes',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white.withOpacity(0.5),
+          ),
+        ),
+        const SizedBox(height: 20),
+      ],
+      ),
     );
   }
 

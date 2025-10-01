@@ -10,8 +10,11 @@ import 'package:securesphere/config/api_config.dart';
 import 'package:securesphere/features/auth/services/auth_service.dart';
 import 'package:securesphere/features/sia/services/sia_service.dart';
 import 'package:securesphere/features/auth/services/security_service.dart';
+import 'package:securesphere/features/auth/services/qr_login_service.dart';
 import 'package:securesphere/features/auth/screens/pin_setup_screen.dart';
+import 'package:securesphere/features/auth/screens/qr_scanner_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -47,7 +50,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   
   bool _biometricsAvailable = false;
   bool _useBiometrics = false;
-
   bool _siaConnected = false;
   bool _seedPhraseVisible = false;
   
@@ -56,6 +58,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       return Get.find<SecurityService>();
     } catch (e) {
+      print('SETTINGS: SecurityService not available: $e');
+      return null;
+    }
+  }
+  QrLoginService? get _qrLoginService {
+    try {
+      return Get.find<QrLoginService>();
+    } catch (e) {
+      // QR service not initialized yet - this should not happen if main.dart is working correctly
+      print('SETTINGS: QrLoginService not found, this indicates an initialization issue');
       return null;
     }
   }
@@ -68,7 +80,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _checkBiometrics();
     _loadBiometricsSetting();
     _loadBackupOption();
-
     _loadSiaConnectionStatus();
     _loadSiaConfiguration();
     _loadSecuritySettings();
@@ -76,6 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Load SIA configuration after service initialization (without overriding user choice)
     Future.delayed(const Duration(milliseconds: 1000), () {
       _loadSiaConfiguration();
+      print('SETTINGS: Loaded SIA configuration after service initialization');
     });
   }
 
@@ -86,7 +98,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _biometricsAvailable = canCheck && isDeviceSupported;
       });
+      print('SETTINGS: Biometrics available: $_biometricsAvailable');
     } catch (e) {
+      print('SETTINGS: Error checking biometrics: $e');
       setState(() {
         _biometricsAvailable = false;
       });
@@ -110,8 +124,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
   
-
-
   Future<void> _loadSecuritySettings() async {
     try {
       final securityService = _securityService;
@@ -122,6 +134,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {
+      print('Error loading security settings: $e');
     }
   }
   
@@ -143,26 +156,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _siaPortController.text = config['port'] ?? '';
           _siaPasswordController.text = ''; // Never pre-fill password in settings
           _siaStatusMessage = 'Connected to Self-Hosted SIA';
+          print('SETTINGS: Loaded legacy SIA config but cleared password field');
         } catch (e) {
+          print('Error loading SIA config: $e');
         }
       }
     } catch (e) {
+      print('Error loading SIA connection status: $e');
     }
   }
   
   Future<void> _loadSiaConfiguration() async {
     try {
+      print('SETTINGS: Loading SIA configuration...');
       
       // First, force SIA service to reload from backend
       try {
         final siaService = Get.find<SiaService>();
         await siaService.loadSiaConfiguration();
+        print('SETTINGS: SIA service configuration reloaded');
       } catch (e) {
+        print('SETTINGS: Could not reload SIA service config: $e');
       }
       
       // Load saved backup option (might have been updated by SIA service)
       final prefs = await SharedPreferences.getInstance();
       final savedOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      print('SETTINGS: Current backup option: $savedOption');
       
       setState(() {
         _selectedBackupOption = savedOption;
@@ -173,6 +193,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await _loadSelfHostedConfig();
       }
     } catch (e) {
+      print('SETTINGS: Error loading SIA configuration: $e');
     }
   }
   
@@ -199,6 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _siaIpController.text = node['host'] ?? '';
           _siaPortController.text = (node['port'] ?? '').toString();
           
+          // Check if password is stored locally
           _checkStoredPassword();
         });
       } else {
@@ -212,6 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {
+      print('Error loading self-hosted config: $e');
     }
   }
   
@@ -232,6 +255,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {
+      print('Error checking stored password: $e');
     }
   }
   
@@ -246,6 +270,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Clear manual connection flag and local config
       await prefs.setBool('sia_manually_connected', false);
       await prefs.remove('local_sia_config'); // Remove local SIA config
+      print('[DEBUG] Cleared manual connection flag and local config on disconnect');
       
       // Clear form fields
       _siaIpController.clear();
@@ -256,7 +281,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       try {
         final siaService = Get.find<SiaService>();
         await siaService.clearStoredPassword();
+        print('SIA stored password cleared');
       } catch (e) {
+        print('Error clearing SIA stored password: $e');
       }
       
       setState(() {
@@ -283,8 +310,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
   
-
-
   Future<void> _changePin() async {
     final securityService = _securityService;
     if (securityService == null) {
@@ -408,6 +433,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       Get.snackbar('Error', 'Error toggling biometrics: $e');
     }
+  }
+
+  Future<void> _openQrScanner() async {
+    // Check if QR service is available
+    final qrService = _qrLoginService;
+    if (qrService == null) {
+      Get.snackbar(
+        'Error', 
+        'QR service not available. Please restart the app.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.withOpacity(0.8),
+        colorText: Colors.white,
+      );
+      return;
+    }
+    
+    // Navigate to QR scanner screen
+    await Get.to(() => const QrScannerScreen());
   }
 
   @override
@@ -584,6 +627,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
+                    const Divider(),
+                    
+                    // Device Pairing with QR
+                    ListTile(
+                      leading: const Icon(Icons.qr_code_scanner, color: Color(0xFF1E8E3E)),
+                      title: const Text('Pair Device'),
+                      subtitle: const Text('Scan QR code to pair with desktop'),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: _openQrScanner,
+                    ),
                   ],
                 ),
               ),
@@ -744,6 +797,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _saveSiaSettings() async {
+    print('[DEBUG] Starting SIA connect & save process');
     setState(() {
       _siaStatusMessage = null;
       _siaPutCommand = null;
@@ -754,6 +808,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final portText = _siaPortController.text.trim();
     final password = _siaPasswordController.text;
     
+    print('[DEBUG] Input values - Host: $host, Port: $portText, Password: ${password.isNotEmpty ? "***" : "(empty)"}');
     
     // Input validation
     if (host.isEmpty) {
@@ -815,7 +870,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Also save in the format that vault/backup services expect
         await _saveSiaConfigForServices(host, port, password);
         
+        print('SIA password saved locally and configuration reloaded');
       } catch (e) {
+        print('Error saving SIA password locally: $e');
         setState(() {
           _siaStatusMessage = 'Failed to save SIA password: $e';
           _siaConnected = false;
@@ -827,12 +884,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Test connection to SIA node
       final authHeader = 'Basic ' + base64Encode(utf8.encode(':$password'));
       final url = 'http://$host:$port${ApiConfig.siaWorkerStatePath}';
+      print('[DEBUG] Attempting authentication to $url');
       
       final response = await http.get(Uri.parse(url), headers: {'Authorization': authHeader});
+      print('[DEBUG] Authentication response status: ${response.statusCode}');
+      print('[DEBUG] Authentication response body: ${response.body}');
       
       if (response.statusCode == 200) {
         try {
           final responseData = jsonDecode(response.body);
+          // Check if response contains expected worker state fields
           if (responseData is Map<String, dynamic> && 
               responseData.containsKey('id') && 
               responseData.containsKey('version')) {
@@ -847,36 +908,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             // Set flag to indicate successful manual connection
             await prefs.setBool('sia_manually_connected', true);
+            print('[DEBUG] Set manual connection flag to true');
             
+            print('[DEBUG] Authentication successful, SIA node configured');
             Get.snackbar('Success', 'SIA node connected and configured successfully');
           } else {
             setState(() {
               _siaStatusMessage = 'Invalid response from SIA worker. Please check your connection.';
               _siaConnected = false;
             });
+            print('[DEBUG] Invalid response format');
           }
         } catch (e) {
           setState(() {
             _siaStatusMessage = 'Invalid JSON response from SIA worker.';
             _siaConnected = false;
           });
+          print('[DEBUG] JSON parsing error: $e');
         }
       } else if (response.statusCode == 401 || response.body.contains('Unauthorized')) {
         setState(() {
           _siaStatusMessage = 'Authentication failed. Please verify your password.';
           _siaConnected = false;
         });
+        print('[DEBUG] Authentication failed (401/Unauthorized)');
       } else {
         setState(() {
           _siaStatusMessage = 'Connection failed. Please verify your host and port.';
           _siaConnected = false;
         });
+        print('[DEBUG] Connection failed with status ${response.statusCode}');
       }
     } catch (e) {
       setState(() {
         _siaStatusMessage = 'Connection error: $e';
         _siaConnected = false;
       });
+      print('[DEBUG] Connection error: $e');
     }
     
     setState(() {
@@ -888,6 +956,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final userId = await _authService.getUserId();
       if (userId == null) {
+        print('SETTINGS: Cannot save SIA config - userId is null');
         Get.snackbar(
           'Error',
           'User ID not available. Please try logging in again.',
@@ -898,7 +967,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return false;
       }
       
+      // Check if API key is configured
       if (ApiConfig.psqlApiKey.isEmpty) {
+        print('SETTINGS: API key not configured');
         Get.snackbar(
           'Configuration Error',
           'Backend API key not configured. SIA config will be saved locally only.',
@@ -922,6 +993,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       };
       
       // Debug logging
+      print('SETTINGS: Saving SIA config to backend');
+      print('SETTINGS: URL: $url');
+      print('SETTINGS: Payload data: $payloadData');
       
       final response = await http.post(url, headers: headers, body: payload).timeout(
         const Duration(seconds: 10),
@@ -930,10 +1004,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       );
       
+      print('SETTINGS: Response status: ${response.statusCode}');
+      print('SETTINGS: Response body: ${response.body}');
       
       if (response.statusCode == 200 || response.statusCode == 201) {
+        print('SETTINGS: SIA config saved to backend successfully');
         return true;
       } else {
+        print('SETTINGS: Failed to save SIA config - Status: ${response.statusCode}');
         Get.snackbar(
           'Backend Error',
           'Failed to save SIA config to server (${response.statusCode}). Config saved locally.',
@@ -944,6 +1022,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return true; // Continue with local storage
       }
     } catch (e) {
+      print('SETTINGS: Exception while saving SIA config to backend: $e');
       
       String userMessage = 'Backend server not available. Config saved locally only.';
       if (e.toString().contains('Connection refused')) {
@@ -968,6 +1047,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       
+      // Save the SIA config in the same format the SIA service expects
       final configData = {
         'host': host,
         'port': port,
@@ -976,9 +1056,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       // Save to a key that SIA service can read
       await prefs.setString('local_sia_config', jsonEncode(configData));
+      print('SETTINGS: SIA config saved locally: $configData');
       
       return true;
     } catch (e) {
+      print('SETTINGS: Error saving SIA config locally: $e');
       return false;
     }
   }
@@ -996,8 +1078,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       await prefs.setString('sia_config', jsonEncode(legacyConfig));
       await prefs.setBool('sia_verified', true);
+      print('SETTINGS: SIA config saved for vault/backup services: $host:$port');
       
     } catch (e) {
+      print('SETTINGS: Error saving SIA config for services: $e');
     }
   }
   
@@ -1043,6 +1127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final node = data['node'] as Map<String, dynamic>;
           
           // For settings display, never show the actual password
+          print('SETTINGS: Self-hosted config found, but not showing stored password in settings');
           
           return {
             'host': node['host'] ?? '',
@@ -1052,6 +1137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
     } catch (e) {
+      print('Error getting SIA config: $e');
     }
     return null;
   }
@@ -1264,6 +1350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           });
                         }
                         
+                        // Update the dialog state to reflect changes
                         setDialogState(() {});
                       }
                     },

@@ -53,9 +53,9 @@
 		<!-- Photo Library Access (for file_picker) -->
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>SecureSphere needs access to your photo library to allow you to select and upload images to your secure vault.</string>
-		<!-- Camera Access (for file_picker) -->
-		<key>NSCameraUsageDescription</key>
-		<string>SecureSphere needs camera access to allow you to take photos and upload them to your secure vault.</string>
+			<!-- Camera Access (for file_picker and QR code scanning) -->
+	<key>NSCameraUsageDescription</key>
+	<string>SecureSphere needs camera access to scan QR codes for device pairing and to take photos for your secure vault.</string>
 		<!-- Local Network Access (for SIA connectivity) -->
 		<key>NSLocalNetworkUsageDescription</key>
 		<string>SecureSphere needs local network access to connect to SIA storage nodes for decentralized file storage.</string>

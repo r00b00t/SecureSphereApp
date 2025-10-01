@@ -39,6 +39,7 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       return Get.find<SecurityService>();
     } catch (e) {
+      print('AUTH_SCREEN: SecurityService not available: $e');
       return null;
     }
   } 
@@ -57,6 +58,7 @@ class _AuthScreenState extends State<AuthScreen> {
       // Quick check if PIN authentication might be required
       final securityService = _securityService;
       if (securityService != null && securityService.hasSecurityEnabled && securityService.isAppLocked) {
+        print('AUTH_SCREEN: PIN authentication required, showing PIN unlock screen');
         // Show PIN unlock screen instead of navigating to home
         Get.dialog(
           const PinUnlockScreen(),
@@ -87,6 +89,7 @@ class _AuthScreenState extends State<AuthScreen> {
       });
     } catch (e) {
 
+      debugPrint('Biometric check failed: $e');
       setState(() {
         _biometricsAvailable = false;
       });
@@ -129,9 +132,12 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _skipToHome() async {
     if (kDebugMode) {
+      print('Generated Seed Phrase: $_generatedSeedPhrase');
       
       if (_generatedSeedPhrase != null) {
         final keys = _authService.deriveKeysFromSeedPhrase(_generatedSeedPhrase!);
+        print('Public Key: ${keys['publicKey']}');
+        print('Private Key: ${keys['privateKey']}');
       }
     }
     Get.offAllNamed('/home');
@@ -165,6 +171,7 @@ class _AuthScreenState extends State<AuthScreen> {
         final securityService = _securityService;
         if (securityService != null) {
           await securityService.markInitialSetupComplete();
+          print('AUTH_SCREEN: Initial setup marked as complete (login)');
         }
 
         Get.offAllNamed('/home');
@@ -205,7 +212,6 @@ class _AuthScreenState extends State<AuthScreen> {
             children: [
               const SizedBox(height: 40),
               
-
               if (_isRegistering) ...[  // REGISTRATION SCREEN
                 const Text(
                   'Create New Account',
@@ -367,6 +373,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             final securityService = _securityService;
                             if (securityService != null) {
                               await securityService.markInitialSetupComplete();
+                              print('AUTH_SCREEN: Initial setup marked as complete');
                             }
                             
                             Get.offAllNamed('/home');
