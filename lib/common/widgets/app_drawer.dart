@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
-import 'package:securesphere/features/auth/services/security_service.dart';
-import 'package:securesphere/features/auth/screens/pin_unlock_screen.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
+import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
+import 'package:decvault/features/subscription/services/revenuecat_service.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -27,10 +28,17 @@ class AppDrawer extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: Colors.white.withOpacity(0.15),
-                    child: Icon(Icons.person, color: Colors.white, size: 36),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Image.asset(
+                      'assets/logo/white.png',
+                      width: 48,
+                      height: 48,
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -45,7 +53,7 @@ class AppDrawer extends StatelessWidget {
                               ),
                         ),
                         Text(
-                          'SecureSphere',
+                          'DecVault',
                           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -126,6 +134,7 @@ class AppDrawer extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
               child: Text('Advanced', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
             ),
+            _buildSubscriptionItem(context),
              _buildDrawerItem(
               icon: Icons.settings,
               iconColor: Color(0xFFDB4437),
@@ -194,6 +203,82 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
+  Widget _buildSubscriptionItem(BuildContext context) {
+    try {
+      final revenueCatService = Get.find<RevenueCatService>();
+      
+      return Obx(() {
+        final isPro = revenueCatService.isPro.value;
+        
+        return ListTile(
+          leading: Icon(
+            isPro ? Icons.workspace_premium : Icons.star_outline,
+            color: const Color(0xFFF9AB00),
+          ),
+          title: Row(
+            children: [
+              Text(
+                isPro ? 'DecVault Pro' : 'Upgrade to Pro',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.white,
+                    ),
+              ),
+              if (isPro) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E8E3E),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'ACTIVE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          onTap: () {
+            Navigator.pop(context);
+            if (isPro) {
+              // If already Pro, show subscription details
+              Get.toNamed('/subscription');
+            } else {
+              // If not Pro, show paywall directly
+              revenueCatService.presentPaywall();
+            }
+          },
+          dense: true,
+          visualDensity: VisualDensity.comfortable,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          hoverColor: Colors.white.withOpacity(0.04),
+          splashColor: Colors.white.withOpacity(0.08),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+          minLeadingWidth: 32,
+        );
+      });
+    } catch (e) {
+      // RevenueCat service not initialized
+      return _buildDrawerItem(
+        icon: Icons.star_outline,
+        iconColor: const Color(0xFFF9AB00),
+        title: 'Upgrade to Pro',
+        onTap: () {
+          Navigator.pop(context);
+          Get.toNamed('/subscription');
+        },
+        context: context,
+      );
+    }
+  }
+
   Future<void> _showLogoutConfirmation() async {
     final confirmed = await Get.dialog<bool>(
       AlertDialog(
@@ -240,15 +325,42 @@ class AppDrawer extends StatelessWidget {
       try {
         final authService = Get.find<AuthService>();
         await authService.logoutUser();
-        Get.offAllNamed('/login');
+        Get.offAllNamed('/auth');
       } catch (e) {
-        Get.snackbar(
-          'Error',
-          'Failed to sign out: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
-        );
+        // Use context to show snackbar safely
+        final scaffoldContext = Get.context;
+        if (scaffoldContext != null && scaffoldContext.mounted) {
+          ScaffoldMessenger.of(scaffoldContext).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.info, color: Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Notice',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        Text(
+                          'Sign out could not be completed.',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.orange.withOpacity(0.8),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          );
+        }
       }
     }
   }

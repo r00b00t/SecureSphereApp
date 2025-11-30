@@ -4,19 +4,68 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
-import 'package:securesphere/config/api_config.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
-import 'package:securesphere/features/sia/models/sia_node_config.dart';
-import 'package:securesphere/features/sia/screens/sia_password_required_screen.dart';
+import 'package:decvault/config/api_config.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/features/sia/models/sia_node_config.dart';
+import 'package:decvault/features/sia/screens/sia_password_required_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
 
 class SiaService extends GetxService {
   static const String _siaPasswordKey = 'sia_password';
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
   
   SiaNodeConfig? _currentConfig;
   SiaNodeConfig? get currentConfig => _currentConfig;
+
+  // Secure storage with fallback to SharedPreferences on macOS
+  Future<void> _secureWrite(String key, String value) async {
+    try {
+      await _storage.write(key: key, value: value);
+    } catch (e) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fallback_$key', value);
+    }
+  }
+
+  Future<String?> _secureRead(String key) async {
+    try {
+      final value = await _storage.read(key: key);
+      if (value != null) return value;
+    } catch (e) {
+    }
+    
+    // Try fallback
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('fallback_$key');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> _secureDelete(String key) async {
+    try {
+      await _storage.delete(key: key);
+    } catch (e) {
+    }
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('fallback_$key');
+    } catch (e) {
+    }
+  }
 
   Future<SiaService> init() async {
     await loadSiaConfiguration();
@@ -28,17 +77,18 @@ class SiaService extends GetxService {
     final prefs = await SharedPreferences.getInstance();
     
     // Get user's current preference (respects their choice)
-    final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+    final backupOption = prefs.getString('backupOption') ?? 'DecVault';
     
+    // Check if user has existing config in backend (for information only)
     final hasBackendConfig = await _checkIfUserHasBackendConfig();
     
-    if (backupOption == 'SecureSphere') {
-      // Use SecureSphere config from ApiConfig (respect user's choice)
+    if (backupOption == 'DecVault') {
+      // Use DecVault config from ApiConfig (respect user's choice)
       _currentConfig = SiaNodeConfig(
         host: ApiConfig.SSip,
         port: ApiConfig.SSport, 
         password: ApiConfig.SSpass,
-        isSecureSphereManagedNode: true,
+        isDecVaultManagedNode: true,
       );
     } else if (backupOption == 'Self-Hosted SIA Node') {
       // Load self-hosted config from backend
@@ -50,18 +100,19 @@ class SiaService extends GetxService {
         await prefs.setString('backupOption', 'Self-Hosted SIA Node');
         await _loadCustomConfigFromBackend();
       } else {
-        // Default to SecureSphere
-        await prefs.setString('backupOption', 'SecureSphere');
+        // Default to DecVault
+        await prefs.setString('backupOption', 'DecVault');
         _currentConfig = SiaNodeConfig(
           host: ApiConfig.SSip,
           port: ApiConfig.SSport, 
           password: ApiConfig.SSpass,
-          isSecureSphereManagedNode: true,
+          isDecVaultManagedNode: true,
         );
       }
     }
   }
 
+  /// Check if user has existing SIA config in backend
   Future<bool> _checkIfUserHasBackendConfig() async {
     try {
       final authService = Get.find<AuthService>();
@@ -132,7 +183,7 @@ class SiaService extends GetxService {
           host: hostStr,
           port: portStr ?? '',
           password: storedPassword ?? '', // Use stored password or empty
-          isSecureSphereManagedNode: false,
+          isDecVaultManagedNode: false,
         );
         
         // If password is missing, trigger the password required screen
@@ -177,6 +228,7 @@ class SiaService extends GetxService {
         return false;
       }
 
+      // Production mode - use real user ID from authentication
 
       // Prepare request data
       final url = Uri.parse(ApiConfig.siaNodeEndpoint);
@@ -214,7 +266,7 @@ class SiaService extends GetxService {
           host: host,
           port: port,
           password: password,
-          isSecureSphereManagedNode: false,
+          isDecVaultManagedNode: false,
         );
         
         return true;
@@ -236,7 +288,7 @@ class SiaService extends GetxService {
   /// Clear stored password
   Future<bool> clearStoredPassword() async {
     try {
-      await _storage.delete(key: _siaPasswordKey);
+      await _secureDelete(_siaPasswordKey);
       return true;
     } catch (e) {
       return false;
@@ -274,10 +326,10 @@ class SiaService extends GetxService {
       
       final jsonData = jsonEncode(encryptedData);
       
-      await _storage.write(key: _siaPasswordKey, value: jsonData);
+      await _secureWrite(_siaPasswordKey, jsonData);
       
       // Verify the stored data can be read back
-      final verifyData = await _storage.read(key: _siaPasswordKey);
+      final verifyData = await _secureRead(_siaPasswordKey);
       if (verifyData == null) {
         return false;
       }
@@ -287,18 +339,18 @@ class SiaService extends GetxService {
         if (verifyParsed is! Map<String, dynamic> || 
             !verifyParsed.containsKey('encrypted') || 
             !verifyParsed.containsKey('iv')) {
-          await _storage.delete(key: _siaPasswordKey);
+          await _secureDelete(_siaPasswordKey);
           return false;
         }
       } catch (e) {
-        await _storage.delete(key: _siaPasswordKey);
+        await _secureDelete(_siaPasswordKey);
         return false;
       }
       
       return true;
     } catch (e) {
       // Clean up any partial data
-      await _storage.delete(key: _siaPasswordKey);
+      await _secureDelete(_siaPasswordKey);
       return false;
     }
   }
@@ -306,7 +358,7 @@ class SiaService extends GetxService {
   /// Get decrypted password
   Future<String?> getStoredPassword() async {
     try {
-      final encryptedDataStr = await _storage.read(key: _siaPasswordKey);
+      final encryptedDataStr = await _secureRead(_siaPasswordKey);
       if (encryptedDataStr == null) return null;
       
       
@@ -316,20 +368,20 @@ class SiaService extends GetxService {
         encryptedData = jsonDecode(encryptedDataStr);
       } catch (jsonError) {
         // Clear corrupted data
-        await _storage.delete(key: _siaPasswordKey);
+        await _secureDelete(_siaPasswordKey);
         return null;
       }
       
       // Validate that the decrypted data has the expected structure
       if (encryptedData is! Map<String, dynamic>) {
         // Clear invalid data
-        await _storage.delete(key: _siaPasswordKey);
+        await _secureDelete(_siaPasswordKey);
         return null;
       }
       
       if (!encryptedData.containsKey('encrypted') || !encryptedData.containsKey('iv')) {
         // Clear incomplete data
-        await _storage.delete(key: _siaPasswordKey);
+        await _secureDelete(_siaPasswordKey);
         return null;
       }
       
@@ -351,24 +403,25 @@ class SiaService extends GetxService {
         return decryptedPassword;
       } catch (cryptoError) {
         // Clear data that can't be decrypted
-        await _storage.delete(key: _siaPasswordKey);
+        await _secureDelete(_siaPasswordKey);
         return null;
       }
       
     } catch (e) {
       // Clear any problematic data
-      await _storage.delete(key: _siaPasswordKey);
+      await _secureDelete(_siaPasswordKey);
       return null;
     }
   }
 
+  /// Check if password is missing for self-hosted config
   Future<bool> isPasswordMissing() async {
     final prefs = await SharedPreferences.getInstance();
-    final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+    final backupOption = prefs.getString('backupOption') ?? 'DecVault';
     
     
-    if (backupOption == 'SecureSphere') {
-      return false; // SecureSphere has built-in password
+    if (backupOption == 'DecVault') {
+      return false; // DecVault has built-in password
     }
     
     if (_currentConfig == null) {
@@ -380,10 +433,10 @@ class SiaService extends GetxService {
     return passwordMissing;
   }
 
-  /// Setup default for new user (SecureSphere)
+  /// Setup default for new user (DecVault)
   Future<void> setupDefaultForNewUser() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('backupOption', 'SecureSphere');
+    await prefs.setString('backupOption', 'DecVault');
     await loadSiaConfiguration();
   }
 
@@ -391,7 +444,7 @@ class SiaService extends GetxService {
   Future<void> onUserLogout() async {
     
     // Clear stored password
-    await _storage.delete(key: _siaPasswordKey);
+    await _secureDelete(_siaPasswordKey);
     
     // Clear current config
     _currentConfig = null;
@@ -401,23 +454,23 @@ class SiaService extends GetxService {
     await prefs.remove('backupOption');
     
     // Also delete any other SIA-related keys that might exist
-    await _storage.delete(key: 'sia_host');
-    await _storage.delete(key: 'sia_port');
-    await _storage.delete(key: 'sia_config');
+    await _secureDelete('sia_host');
+    await _secureDelete('sia_port');
+    await _secureDelete('sia_config');
     
   }
 
   /// Force clear all SIA password data (for debugging)
   Future<void> clearAllPasswordData() async {
-    await _storage.delete(key: _siaPasswordKey);
+    await _secureDelete(_siaPasswordKey);
     
     // If current config exists and it's self-hosted, clear its password
-    if (_currentConfig != null && !_currentConfig!.isSecureSphereManagedNode) {
+    if (_currentConfig != null && !_currentConfig!.isDecVaultManagedNode) {
       _currentConfig = SiaNodeConfig(
         host: _currentConfig!.host,
         port: _currentConfig!.port,
         password: '', // Clear password
-        isSecureSphereManagedNode: false,
+        isDecVaultManagedNode: false,
       );
     }
     
@@ -425,18 +478,18 @@ class SiaService extends GetxService {
 
   /// Update password for current config
   Future<void> updatePassword(String password) async {
-    if (_currentConfig != null && !_currentConfig!.isSecureSphereManagedNode) {
+    if (_currentConfig != null && !_currentConfig!.isDecVaultManagedNode) {
       await _savePasswordLocally(password);
       _currentConfig = SiaNodeConfig(
         host: _currentConfig!.host,
         port: _currentConfig!.port,
         password: password,
-        isSecureSphereManagedNode: false,
+        isDecVaultManagedNode: false,
       );
     }
   }
 
-  /// Get current SIA config (SecureSphere or self-hosted)
+  /// Get current SIA config (DecVault or self-hosted)
   Map<String, String> getCurrentSiaConfig() {
     
     if (_currentConfig != null) {
@@ -448,7 +501,7 @@ class SiaService extends GetxService {
       };
     }
     
-    // Fallback to SecureSphere
+    // Fallback to DecVault
     
     return {
       'host': ApiConfig.SSip,
@@ -464,6 +517,7 @@ class SiaService extends GetxService {
       // Wait a bit to ensure context is available
       await Future.delayed(const Duration(milliseconds: 1000));
       
+      // Check if we have a valid context before navigating
       if (Get.context != null) {
         try {
           // Use direct widget navigation to avoid route issues
@@ -496,7 +550,7 @@ class SiaService extends GetxService {
         host: configData['host'] as String,
         port: configData['port'].toString(),
         password: storedPassword ?? '',
-        isSecureSphereManagedNode: configData['isSecureSphereManagedNode'] as bool? ?? false,
+        isDecVaultManagedNode: configData['isDecVaultManagedNode'] as bool? ?? false,
       );
       
       return config;

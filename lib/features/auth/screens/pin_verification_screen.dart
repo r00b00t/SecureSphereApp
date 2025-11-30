@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/auth/services/security_service.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
 
 class PinVerificationScreen extends StatefulWidget {
   final VoidCallback? onSuccess;

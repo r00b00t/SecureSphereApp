@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
-	<string></string>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -26,11 +26,15 @@
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-	<key>NSFaceIDUsageDescription</key>
-	<string>SecureSphere uses Face ID for secure authentication to protect your passwords and files.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>SecureSphere needs local network access to connect to SIA storage nodes.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>DecVault needs camera access to scan QR codes for device pairing and to take photos for your secure vault.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DecVault needs access to your photo library to allow you to select and upload images to your secure vault.</string>
 </dict>
 </plist>

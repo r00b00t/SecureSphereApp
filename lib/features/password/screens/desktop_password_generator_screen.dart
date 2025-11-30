@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'dart:math';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class DesktopPasswordGeneratorScreen extends StatefulWidget {
   const DesktopPasswordGeneratorScreen({super.key});
@@ -72,7 +74,10 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
 
   void _generatePassword() {
     if (!_includeUppercase && !_includeLowercase && !_includeNumbers && !_includeSymbols && !_useCustomCharset) {
-      Get.snackbar('Error', 'Please select at least one character type');
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Please select at least one character type',
+      );
       return;
     }
 
@@ -99,7 +104,10 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
     }
 
     if (charset.isEmpty) {
-      Get.snackbar('Error', 'No valid characters available with current settings');
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'No valid characters available with current settings',
+      );
       return;
     }
 
@@ -127,7 +135,6 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
     double score = 0;
     List<String> feedback = [];
 
-    // Length score
     if (_generatedPassword.length >= 12) {
       score += 25;
     } else if (_generatedPassword.length >= 8) {
@@ -138,7 +145,6 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
       feedback.add('Password is too short');
     }
 
-    // Character diversity
     bool hasUpper = _generatedPassword.contains(RegExp(r'[A-Z]'));
     bool hasLower = _generatedPassword.contains(RegExp(r'[a-z]'));
     bool hasNumbers = _generatedPassword.contains(RegExp(r'[0-9]'));
@@ -151,7 +157,6 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
       feedback.add('Add more character types');
     }
 
-    // Repetition check
     bool hasRepeats = RegExp(r'(.)\1{2,}').hasMatch(_generatedPassword);
     if (hasRepeats) {
       score -= 10;
@@ -160,7 +165,6 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
       score += 10;
     }
 
-    // Sequential patterns
     bool hasSequential = RegExp(r'(abc|123|qwe)').hasMatch(_generatedPassword.toLowerCase());
     if (hasSequential) {
       score -= 15;
@@ -192,11 +196,9 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
   void _copyPassword() {
     if (_generatedPassword.isNotEmpty) {
       Clipboard.setData(ClipboardData(text: _generatedPassword));
-      Get.snackbar(
-        'Copied',
-        'Password copied to clipboard',
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
+      SnackbarUtils.showSnackbar(
+        title: 'Copied',
+        message: 'Password copied to clipboard',
       );
     }
   }
@@ -212,11 +214,18 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
+          const CustomTitleBar(),
           Expanded(
-            child: _buildMainContent(),
+            child: Row(
+              children: [
+                _buildSidebar(),
+                Expanded(
+                  child: _buildMainContent(),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -302,7 +311,13 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
           Container(
             padding: const EdgeInsets.all(16),
             child: TextButton.icon(
-              onPressed: () => Get.back(),
+              onPressed: () {
+                try {
+                  Get.back();
+                } catch (e) {
+                  // Already on the correct page or navigation failed
+                }
+              },
               icon: const Icon(Icons.arrow_back, size: 16),
               label: const Text('Back'),
               style: TextButton.styleFrom(
@@ -777,11 +792,9 @@ class _DesktopPasswordGeneratorScreenState extends State<DesktopPasswordGenerato
                           trailing: IconButton(
                             onPressed: () {
                               Clipboard.setData(ClipboardData(text: password));
-                              Get.snackbar(
-                                'Copied',
-                                'Password copied to clipboard',
-                                snackPosition: SnackPosition.BOTTOM,
-                                duration: const Duration(seconds: 1),
+                              SnackbarUtils.showSnackbar(
+                                title: 'Copied',
+                                message: 'Password copied to clipboard',
                               );
                             },
                             icon: const Icon(Icons.copy, size: 18),

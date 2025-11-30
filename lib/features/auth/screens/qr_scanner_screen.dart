@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:securesphere/features/auth/services/qr_login_service.dart';
+import 'package:decvault/features/auth/services/qr_login_service.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -70,14 +70,16 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
       if (success) {
         // Show success message
-        Get.snackbar(
-          'Success!',
-          'Device paired successfully. Desktop will log in automatically.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF34A853),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Device paired successfully! Desktop will log in automatically.'),
+              backgroundColor: Color(0xFF34A853),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
         
         // Wait a moment for user to see the message
         await Future.delayed(const Duration(milliseconds: 800));
@@ -88,14 +90,16 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         }
       } else {
         // Show error and restart camera
-        Get.snackbar(
-          'Pairing Failed',
-          'Authentication failed. Try logging out and back in with your seed phrase, then scan again.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Authentication failed. Try logging out and back in with your seed phrase, then scan again.'),
+              backgroundColor: Colors.red.withOpacity(0.8),
+              duration: const Duration(seconds: 4),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
         
         setState(() {
           _isProcessing = false;
@@ -110,14 +114,16 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         Get.back();
       }
 
-      Get.snackbar(
-        'Error',
-        'Failed to process QR code. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to process QR code. Please try again.'),
+            backgroundColor: Colors.red.withOpacity(0.8),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
 
       setState(() {
         _isProcessing = false;

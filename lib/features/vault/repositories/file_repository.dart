@@ -4,8 +4,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:media_scanner/media_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:get/get.dart';
 import '../models/file_model.dart';
 import '../services/renterd_uploader.dart';
+import 'package:decvault/features/subscription/services/storage_service.dart';
+import 'package:decvault/services/notification_service.dart';
 
 class FileRepository {
   final Box<FileModel> _box = Hive.box<FileModel>('files');
@@ -15,7 +18,24 @@ class FileRepository {
   FileRepository([this._renterdUploader]);
 
   Future<void> saveFile(FileModel file) async {
+    final existingFile = _box.get(file.id);
+    final isNewFile = existingFile == null;
+    
     await _box.put(file.id, file);
+    
+    // Update storage tracking only for new files
+    if (isNewFile) {
+      try {
+        final storageService = Get.find<StorageService>();
+        await storageService.addFileSize(
+          file.size,
+          fileId: file.id,
+          fileName: file.name,
+        );
+      } catch (e) {
+        // StorageService not available, continue without tracking
+      }
+    }
   }
 
   Future<void> deleteFile(String id) async {
@@ -27,7 +47,6 @@ class FileRepository {
             final filenameForSia = file.siaFilename ?? file.name;
             await _renterdUploader!.deleteFile(filenameForSia);
           } catch (e) {
-            // Continue with local deletion even if SIA deletion fails
           }
         }
       }
@@ -42,6 +61,14 @@ class FileRepository {
       }
       
       await _box.delete(id);
+      
+      // Update storage tracking
+      try {
+        final storageService = Get.find<StorageService>();
+        await storageService.removeFileSize(file.size, fileId: file.id);
+      } catch (e) {
+        // StorageService not available, continue without tracking
+      }
     }
   }
 
@@ -73,13 +100,28 @@ class FileRepository {
       
       onProgress?.call(5.0);
       
+      final size = await file.length();
+      
+      try {
+        final storageService = Get.find<StorageService>();
+        
+        if (!storageService.canUploadFile(size)) {
+          await storageService.showStorageLimitDialog();
+          throw Exception('Storage limit exceeded');
+        }
+        
+      } catch (e) {
+        if (e.toString().contains('Storage limit exceeded')) {
+          rethrow;
+        }
+      }
+      
       final id = _uuid.v4();
       onProgress?.call(15.0);
       
       final path = await copyFileToVault(file, originalName);
       onProgress?.call(40.0);
       
-      final size = await file.length();
       onProgress?.call(50.0);
       
       final fileModel = FileModel(
@@ -92,13 +134,12 @@ class FileRepository {
         uploadedAt: DateTime.now(),
         description: description,
         tags: tags,
-        isEncrypted: true, // Files are now encrypted by default
+        isEncrypted: true,
       );
 
       onProgress?.call(60.0);
       await saveFile(fileModel);
       onProgress?.call(70.0);
-      
       
       if (isSiaUploadAvailable) {
         try {
@@ -114,12 +155,8 @@ class FileRepository {
           
           fileModel.tags = [...fileModel.tags, 'sia-uploaded'];
           await saveFile(fileModel);
-          
-          
         } catch (e) {
-          // SIA upload failed, but local upload succeeded
         }
-      } else {
       }
       
       onProgress?.call(100.0);
@@ -156,6 +193,7 @@ class FileRepository {
         onProgress: onProgress,
       );
       
+      // Store the size-embedded SIA filename for downloads
       file.siaFilename = siaFilename;
       await saveFile(file);
       
@@ -180,7 +218,7 @@ class FileRepository {
       Directory? downloadDir;
       String approach = '';
       
-      // Approach 1: Try Downloads/SecureSphere directory (cross-platform)
+      // Approach 1: Try Downloads/DecVault directory (cross-platform)
       try {
         Directory? baseDownloadsDir;
         
@@ -203,12 +241,12 @@ class FileRepository {
         }
         
         if (baseDownloadsDir != null && await baseDownloadsDir.exists()) {
-          final secureSphereDownloadDir = Directory('${baseDownloadsDir.path}${Platform.pathSeparator}SecureSphere');
+          final secureSphereDownloadDir = Directory('${baseDownloadsDir.path}${Platform.pathSeparator}DecVault');
           if (!await secureSphereDownloadDir.exists()) {
             await secureSphereDownloadDir.create(recursive: true);
           }
           downloadDir = secureSphereDownloadDir;
-          approach = 'Downloads/SecureSphere';
+          approach = 'Downloads/DecVault';
         }
       } catch (e) {
       }
@@ -249,7 +287,7 @@ class FileRepository {
         try {
           final appDir = await getExternalStorageDirectory();
           if (appDir != null) {
-            downloadDir = Directory('${appDir.path}/SecureSphere');
+            downloadDir = Directory('${appDir.path}/DecVault');
             if (!await downloadDir.exists()) {
               await downloadDir.create(recursive: true);
             }
@@ -287,7 +325,7 @@ class FileRepository {
         }
         
         // For external storage files, try to make them visible via MediaStore (Android only)
-        if (approach == 'Downloads/SecureSphere' || approach == 'Downloads' || approach == 'External App Directory') {
+        if (approach == 'Downloads/DecVault' || approach == 'Downloads' || approach == 'External App Directory') {
           try {
             // Only call MediaScanner on Android - it's not available on desktop platforms
             if (Platform.isAndroid) {
@@ -298,12 +336,30 @@ class FileRepository {
           }
         }
         
+        // Show download notification
+        try {
+          await NotificationService().showDownloadComplete(
+            fileName: file.name,
+            filePath: downloadedFile.path,
+          );
+        } catch (e) {
+          // Notification failure should not stop the download flow
+        }
         
       } else {
         throw Exception('File was not created at expected location: $downloadPath');
       }
       
     } catch (e) {
+      // Show error notification
+      try {
+        await NotificationService().showDownloadError(
+          fileName: file.name,
+          error: e.toString(),
+        );
+      } catch (notifError) {
+        // Notification failure should not stop the error flow
+      }
       throw Exception('Failed to download and save file: $e');
     }
   }
@@ -319,16 +375,13 @@ class FileRepository {
           status = await Permission.storage.request();
         }
         
-        // Also try manage external storage for broader access
         var manageStatus = await Permission.manageExternalStorage.status;
         if (!manageStatus.isGranted) {
-          // Note: This will open settings, user needs to manually grant
           manageStatus = await Permission.manageExternalStorage.request();
         }
               } else {
         }
     } catch (e) {
-      // Continue anyway, we have fallback options
     }
   }
 
@@ -347,7 +400,11 @@ class FileRepository {
     }
   }
 
-  /// Get files directly from SIA vault bucket (actual vault contents)
+  /// Get files directly from SIA vault bucket
+  /// as a .origXXXXX suffix (e.g., "file_timestamp.ext.orig12345"). This is critical for
+  /// cross-device decryption to work correctly, as the encryption key is derived from
+  /// the original file size. Without extracting this size, decryption will fail when
+  /// downloading files that were uploaded from other devices.
   Future<List<FileModel>> getSiaVaultFiles() async {
     if (_renterdUploader == null) {
       throw Exception('RenterdUploader not configured');
@@ -360,14 +417,26 @@ class FileRepository {
       for (final siaFile in siaFiles) {
         final siaFileName = siaFile['name'] as String;
         
+        // Check if we have local metadata for this file using siaFilename
         final localFiles = await getAllFiles();
         final existingFile = localFiles.firstWhere(
           (f) => f.siaFilename == siaFileName,
           orElse: () {
+            // Extract original file size from .origXXXXX suffix if present
+            int originalSize = siaFile['size'] as int? ?? 0;
+            final origSizeMatch = RegExp(r'\.orig(\d+)$').firstMatch(siaFileName);
+            if (origSizeMatch != null) {
+              originalSize = int.parse(origSizeMatch.group(1)!);
+            } else {
+            }
+            
             // Try to extract original name from unique filename
             String displayName = siaFileName;
-            if (siaFileName.contains('_') && siaFileName.split('_').length >= 2) {
-              final parts = siaFileName.split('_');
+            // Remove .origXXXXX suffix first
+            displayName = displayName.replaceAll(RegExp(r'\.orig\d+$'), '');
+            
+            if (displayName.contains('_') && displayName.split('_').length >= 2) {
+              final parts = displayName.split('_');
               final timestampAndExt = parts.last;
               final originalParts = parts.sublist(0, parts.length - 1);
               final originalName = originalParts.join('_');
@@ -383,7 +452,7 @@ class FileRepository {
               name: displayName,
               originalName: displayName,
               path: '',
-              size: siaFile['size'] as int? ?? 0,
+              size: originalSize, // Use extracted original size instead of encrypted size
               mimeType: _getMimeType(displayName),
               uploadedAt: DateTime.tryParse(siaFile['modTime'] as String? ?? '') ?? DateTime.now(),
               description: 'File in SIA vault',
@@ -394,12 +463,19 @@ class FileRepository {
           },
         );
         
+        // Extract original size from filename if available, otherwise use existing file size
+        int fileSize = existingFile.size;
+        final origSizeMatch = RegExp(r'\.orig(\d+)$').firstMatch(siaFileName);
+        if (origSizeMatch != null) {
+          fileSize = int.parse(origSizeMatch.group(1)!);
+        }
+        
         final fileModel = FileModel(
           id: existingFile.id,
           name: existingFile.name,
           originalName: existingFile.originalName.isNotEmpty ? existingFile.originalName : existingFile.name,
           path: existingFile.path,
-          size: siaFile['size'] as int? ?? 0,
+          size: fileSize, // Use extracted original size or existing size
           mimeType: existingFile.mimeType.isNotEmpty ? existingFile.mimeType : _getMimeType(existingFile.name),
           uploadedAt: DateTime.tryParse(siaFile['modTime'] as String? ?? '') ?? existingFile.uploadedAt,
           description: existingFile.description ?? 'File in SIA vault',
@@ -438,24 +514,48 @@ class FileRepository {
       for (final siaFile in siaFiles) {
         final siaFileName = siaFile['name'] as String;
         
-        // Extract clean filename for display (remove .origXXXXX suffix)
-        final cleanFileName = siaFileName.replaceAll(RegExp(r'\.orig\d+$'), '');
+        // Extract original file size from .origXXXXX suffix if present
+        int originalSize = siaFile['size'] as int? ?? 0;
+        final origSizeMatch = RegExp(r'\.orig(\d+)$').firstMatch(siaFileName);
+        if (origSizeMatch != null) {
+          originalSize = int.parse(origSizeMatch.group(1)!);
+        } else {
+        }
         
-        if (localFileNames.contains(cleanFileName)) {
+        // Extract original filename from unique SIA filename
+        String displayName = siaFileName;
+        // Remove .origXXXXX suffix first
+        displayName = displayName.replaceAll(RegExp(r'\.orig\d+$'), '');
+        
+        // Remove timestamp from filename (format: basename_timestamp.ext)
+        if (displayName.contains('_') && displayName.split('_').length >= 2) {
+          final parts = displayName.split('_');
+          final timestampAndExt = parts.last;
+          final originalParts = parts.sublist(0, parts.length - 1);
+          final originalName = originalParts.join('_');
+          
+          if (timestampAndExt.contains('.')) {
+            final extension = timestampAndExt.split('.').last;
+            displayName = '$originalName.$extension';
+          }
+        }
+        
+        if (localFileNames.contains(displayName)) {
           continue;
         }
         
         final fileModel = FileModel(
           id: _uuid.v4(),
-          name: cleanFileName,
-          originalName: cleanFileName,
+          name: displayName,
+          originalName: displayName,
           path: '',
-          size: siaFile['size'] as int? ?? 0,
-          mimeType: _getMimeType(cleanFileName),
+          size: originalSize, // Use extracted original size instead of encrypted size
+          mimeType: _getMimeType(displayName),
           uploadedAt: DateTime.tryParse(siaFile['modTime'] as String? ?? '') ?? DateTime.now(),
           description: 'Synced from SIA vault',
           tags: ['sia-synced'],
           isEncrypted: true,
+          siaFilename: siaFileName, // Store the actual SIA filename for download
         );
         
         newFiles.add(fileModel);

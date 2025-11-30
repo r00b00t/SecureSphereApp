@@ -18,11 +18,13 @@ class EncryptionService {
   /// Derives a master encryption key from the user's seed phrase
   Future<Uint8List> _deriveMasterKey() async {
     try {
+      // Get the user's private key from their seed phrase
       final privateKey = await _authService.getPrivateKey();
       if (privateKey == null) {
         throw Exception('No private key available. User must be authenticated.');
       }
       
+      // Create a deterministic master key from the private key
       // We use SHA-256 to ensure consistent 32-byte key length
       final privateKeyBytes = Uint8List.fromList(HEX.decode(privateKey));
       final masterKey = sha256.convert(privateKeyBytes).bytes;
@@ -39,6 +41,7 @@ class EncryptionService {
     try {
       final masterKey = await _deriveMasterKey();
       
+      // Create a unique key for this file using:
       // - Master key
       // - Filename
       // - File size
@@ -122,6 +125,7 @@ class EncryptionService {
       // Read the encrypted file
       final encryptedBytes = await encryptedFile.readAsBytes();
       
+      // Check if file is actually encrypted
       if (!_isEncryptedFile(encryptedBytes)) {
         throw Exception('File is not encrypted or has invalid format');
       }

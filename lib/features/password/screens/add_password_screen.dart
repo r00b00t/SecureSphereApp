@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/models/password_model.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:sha3/sha3.dart';
-import 'package:securesphere/config/api_config.dart'; // Added this line
+import 'package:decvault/config/api_config.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 
 class AddPasswordScreen extends StatefulWidget {
@@ -106,131 +106,340 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
       appBar: AppBar(
         title: Text(widget.passwordToEdit != null ? 'Edit Password' : 'Add New Password'),
       ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Card(
-            elevation: 6,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF121212),
+              const Color(0xFF1E1E1E),
+              Theme.of(context).primaryColor.withValues(alpha: 0.08),
+            ],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Card(
+              elevation: 8,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF1E1E1E),
+                      const Color(0xFF2C2C2C),
+                    ],
+                  ),
+                ),
+                child: Padding(
+              padding: const EdgeInsets.all(24.0),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextFormField(
-                      key: _titleFieldKey,
-                      controller: _titleController,
-                      decoration: InputDecoration(
-                        labelText: 'Title',
-                        prefixIcon: Icon(Icons.title),
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.1),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
-                      validator: (value) => value?.isEmpty ?? true ? 'Please enter a title' : null,
+                    // Header
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Theme.of(context).primaryColor,
+                                Theme.of(context).colorScheme.secondary,
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            widget.passwordToEdit != null ? Icons.edit : Icons.add_circle_outline,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.passwordToEdit != null ? 'Edit Password' : 'New Password',
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Secure your credentials',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[400],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      key: _usernameFieldKey,
-                      controller: _usernameController,
-                      decoration: InputDecoration(
-                        labelText: 'Username/Email',
-                        prefixIcon: Icon(Icons.person),
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.1),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
+                    const SizedBox(height: 32),
+                    
+                    // Title Field
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.label, size: 16, color: Theme.of(context).primaryColor),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Title',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: _titleFieldKey,
+                          controller: _titleController,
+                          decoration: InputDecoration(
+                            hintText: 'e.g., Gmail, Facebook',
+                            prefixIcon: Icon(Icons.title, color: Theme.of(context).primaryColor),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.black.withValues(alpha: 0.3),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          ),
+                          validator: (value) => value?.isEmpty ?? true ? 'Please enter a title' : null,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      key: _passwordFieldKey,
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon: Icon(Icons.lock),
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.1),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                          onPressed: () {
+                    const SizedBox(height: 20),
+                    
+                    // Username Field
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.person, size: 16, color: Theme.of(context).primaryColor),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Username / Email',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: _usernameFieldKey,
+                          controller: _usernameController,
+                          decoration: InputDecoration(
+                            hintText: 'your@email.com',
+                            prefixIcon: Icon(Icons.alternate_email, color: Theme.of(context).primaryColor),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.black.withValues(alpha: 0.3),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // Password Field
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.lock, size: 16, color: Theme.of(context).primaryColor),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Password',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: _passwordFieldKey,
+                          controller: _passwordController,
+                          decoration: InputDecoration(
+                            hintText: '••••••••',
+                            prefixIcon: Icon(Icons.vpn_key, color: Theme.of(context).primaryColor),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.black.withValues(alpha: 0.3),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                color: Colors.grey[400],
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                          validator: (value) => value?.isEmpty ?? true ? 'Please enter a password' : null,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // Category Selection
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.category, size: 16, color: Theme.of(context).primaryColor),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Category',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: _selectedCategory,
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(_getCategoryIcon(_selectedCategory), color: Theme.of(context).primaryColor),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.black.withValues(alpha: 0.3),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          ),
+                          items: _categories.map((String category) {
+                            return DropdownMenuItem<String>(
+                              value: category,
+                              child: Row(
+                                children: [
+                                  Icon(_getCategoryIcon(category), size: 20),
+                                  const SizedBox(width: 12),
+                                  Text(category),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (String? newValue) {
                             setState(() {
-                              _obscurePassword = !_obscurePassword;
+                              _selectedCategory = newValue!;
                             });
                           },
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please select a category';
+                            }
+                            return null;
+                          },
                         ),
-                      ),
-                      obscureText: _obscurePassword,
-                      validator: (value) => value?.isEmpty ?? true ? 'Please enter a password' : null,
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedCategory,
-                      decoration: InputDecoration(
-                        labelText: 'Category',
-                        prefixIcon: Icon(Icons.category),
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.1),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
-                      items: _categories.map((String category) {
-                        return DropdownMenuItem<String>(
-                          value: category,
-                          child: Row(
-                            children: [
-                              Icon(_getCategoryIcon(category), size: 20),
-                              SizedBox(width: 12),
-                              Text(category),
-                            ],
+                    const SizedBox(height: 20),
+                    
+                    // Notes Field
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.note_alt, size: 16, color: Theme.of(context).primaryColor),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Notes (Optional)',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          key: _notesFieldKey,
+                          controller: _notesController,
+                          decoration: InputDecoration(
+                            hintText: 'Add any additional information...',
+                            prefixIcon: Padding(
+                              padding: const EdgeInsets.only(bottom: 60),
+                              child: Icon(Icons.notes, color: Theme.of(context).primaryColor),
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: Colors.black.withValues(alpha: 0.3),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                            alignLabelWithHint: true,
                           ),
-                        );
-                      }).toList(),
-                      onChanged: (String? newValue) {
-                        setState(() {
-                          _selectedCategory = newValue!;
-                        });
-                      },
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please select a category';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      key: _notesFieldKey,
-                      controller: _notesController,
-                      decoration: InputDecoration(
-                        labelText: 'Notes',
-                        prefixIcon: Icon(Icons.note),
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.1),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        alignLabelWithHint: true,
-                      ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 28),
-                    SizedBox(
-                      height: 52,
-                      child: ElevatedButton.icon(
-                        icon: Icon(Icons.save),
-                        label: Text(widget.passwordToEdit != null ? 'Update Password' : 'Save Password', style: TextStyle(fontSize: 18)),
-                        style: ElevatedButton.styleFrom(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          maxLines: 4,
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+                    
+                    // Save Button
+                    SizedBox(
+                      height: 56,
+                      child: ElevatedButton(
                         onPressed: _savePassword,
+                        style: ElevatedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 4,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              widget.passwordToEdit != null ? Icons.check_circle : Icons.save,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              widget.passwordToEdit != null ? 'Update Password' : 'Save Password',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
+                ),
+              ),
                 ),
               ),
             ),
@@ -251,34 +460,18 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
         bool breachCheckFailed = false;
         
         try {
-          // Hash password using SHA3-512 and extract first 10 chars
-          final k = SHA3(512, KECCAK_PADDING, 512);
-          k.update(utf8.encode(passwordText));
-          final hash = k.digest().map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-          final hashPrefix = hash.substring(0, 10);
-          final url = '${ApiConfig.passwordApiBaseUrl}${ApiConfig.passwordAnonPath}$hashPrefix';
+          // Check password using the new breach API
+          final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordText)}');
           
-          final response = await http.get(
-            Uri.parse(url),
-            headers: {'User-Agent': 'SecureSphere-App'},
-          ).timeout(Duration(seconds: 10));
+          final response = await http.get(url).timeout(Duration(seconds: 10));
           
           
           if (response.statusCode == 200) {
-            // HaveIBeenPwned API returns plain text with hash suffixes and counts
-            final lines = response.body.split('\n');
-            final remainingHash = hash.substring(10).toUpperCase();
+            final data = json.decode(response.body);
+            final bool success = data['success'] ?? false;
+            breachCount = data['count'] ?? 0;
+            breached = breachCount > 0;
             
-            for (final line in lines) {
-              if (line.trim().isNotEmpty) {
-                final parts = line.split(':');
-                if (parts.length == 2 && parts[0] == remainingHash) {
-                  breached = true;
-                  breachCount = int.tryParse(parts[1]) ?? 0;
-                  break;
-                }
-              }
-            }
           }
         } catch (e) {
           breachCheckFailed = true;
@@ -347,18 +540,16 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
         } else {
           await _passwordRepo.addPassword(passwordModel);
         }
-        Get.snackbar(
-          'Success',
-          isEdit ? 'Password updated successfully!' : 'Password saved successfully!',
-          snackPosition: SnackPosition.BOTTOM,
+        SnackbarUtils.showSuccess(
+          title: 'Success',
+          message: isEdit ? 'Password updated successfully!' : 'Password saved successfully!',
         );
         Navigator.of(context).pop(true);
       } catch (e, stackTrace) {
-        Get.snackbar(
-          'Error',
-          'Failed to save password',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to save password',
+      );
       }
     }
   }

@@ -5,7 +5,8 @@ class DesktopSidebar extends StatelessWidget {
   final String currentRoute;
   final String title;
   final String subtitle;
-  final IconData headerIcon;
+  final IconData? headerIcon;
+  final bool useLogo;
   final List<DesktopSidebarItem> items;
   final List<Widget>? bottomWidgets;
 
@@ -14,7 +15,8 @@ class DesktopSidebar extends StatelessWidget {
     required this.currentRoute,
     required this.title,
     required this.subtitle,
-    required this.headerIcon,
+    this.headerIcon,
+    this.useLogo = true,
     required this.items,
     this.bottomWidgets,
   });
@@ -49,7 +51,13 @@ class DesktopSidebar extends StatelessWidget {
                     color: Colors.white.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(headerIcon, color: Colors.white, size: 24),
+                  child: useLogo
+                      ? Image.asset(
+                          'assets/logo/white.png',
+                          width: 32,
+                          height: 32,
+                        )
+                      : Icon(headerIcon ?? Icons.apps, color: Colors.white, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

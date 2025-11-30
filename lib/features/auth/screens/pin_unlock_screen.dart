@@ -143,7 +143,13 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> with WidgetsBindingOb
     // Add longer delay to prevent immediate re-lock from lifecycle events
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
-        Get.back(); // Close the PIN dialog
+        try {
+          if (Navigator.canPop(context)) {
+            Navigator.of(context).pop(); // Close the PIN dialog
+          }
+        } catch (e) {
+          // Dialog might already be closed, ignore
+        }
         
         // If we're on the auth screen (fresh startup), navigate to home
         if (Get.currentRoute == '/auth') {
@@ -160,11 +166,14 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> with WidgetsBindingOb
         _onUnlockSuccess();
       }
     } catch (e) {
-      Get.snackbar(
-        'Authentication Failed',
-        'Biometric authentication failed. Please use your PIN.',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Authentication Failed - Biometric authentication failed. Please use your PIN.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -179,14 +188,17 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> with WidgetsBindingOb
       onPopInvoked: (didPop) {
         if (didPop) return;
         // Show message that PIN is required
-        Get.snackbar(
-          'Security Required',
-          'Please enter your PIN to continue',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
-        );
+        try {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Security Required - Please enter your PIN to continue'),
+              backgroundColor: Colors.red.withOpacity(0.8),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } catch (e) {
+        }
       },
       child: Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -232,7 +244,7 @@ class _PinUnlockScreenState extends State<PinUnlockScreen> with WidgetsBindingOb
               const SizedBox(height: 8),
               
               Text(
-                'Enter your 6-digit PIN to access SecureSphere',
+                'Enter your 6-digit PIN to access DecVault',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withOpacity(0.7),
                 ),

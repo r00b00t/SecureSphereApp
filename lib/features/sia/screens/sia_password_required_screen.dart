@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class SiaPasswordRequiredScreen extends StatefulWidget {
   const SiaPasswordRequiredScreen({super.key});
@@ -53,13 +54,9 @@ class _SiaPasswordRequiredScreenState extends State<SiaPasswordRequiredScreen> {
     final password = _passwordController.text.trim();
     
     if (password.isEmpty) {
-      Get.snackbar(
-        'Password Required',
-        'Please enter your SIA node password to continue',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange[100],
-        colorText: Colors.orange[800],
-        icon: const Icon(Icons.warning, color: Colors.orange),
+      SnackbarUtils.showWarning(
+        title: 'Password Required',
+        message: 'Please enter your SIA node password to continue',
       );
       return;
     }
@@ -76,22 +73,14 @@ class _SiaPasswordRequiredScreenState extends State<SiaPasswordRequiredScreen> {
       // Navigate to home screen
       Get.offAllNamed('/home');
       
-      Get.snackbar(
-        'Password Saved',
-        'Your SIA node password has been saved securely',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green[100],
-        colorText: Colors.green[800],
-        icon: const Icon(Icons.check_circle, color: Colors.green),
+      SnackbarUtils.showSuccess(
+        title: 'Password Saved',
+        message: 'Your SIA node password has been saved securely',
       );
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to save password: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red[100],
-        colorText: Colors.red[800],
-        icon: const Icon(Icons.error, color: Colors.red),
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to save password: $e',
       );
     } finally {
       setState(() {
@@ -103,13 +92,9 @@ class _SiaPasswordRequiredScreenState extends State<SiaPasswordRequiredScreen> {
   void _skipToHome() {
     Get.offAllNamed('/home');
     
-    Get.snackbar(
-      'Skipped',
-      'You can add your SIA password later in Settings',
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: Colors.blue[100],
-      colorText: Colors.blue[800],
-      icon: const Icon(Icons.info, color: Colors.blue),
+    SnackbarUtils.showInfo(
+      title: 'Skipped',
+      message: 'You can add your SIA password later in Settings',
     );
   }
 

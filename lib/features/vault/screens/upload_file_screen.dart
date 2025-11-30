@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:get/get.dart';
 import '../repositories/file_repository.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class UploadFileScreen extends StatefulWidget {
   const UploadFileScreen({super.key});
@@ -33,24 +35,116 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
         });
       }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to pick file: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to pick file: $e',
+      );
+    }
+  }
+
+  Future<void> _pickFromGallery() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      
+      // Show options for photos or videos
+      final ImageSource? source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (BuildContext context) {
+          return SafeArea(
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.photo_library, color: Color(0xFF34A853)),
+                  title: const Text('Photo Library', style: TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.camera_alt, color: Color(0xFF34A853)),
+                  title: const Text('Camera', style: TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.pop(context, ImageSource.camera),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (source == null) return;
+
+      final XFile? pickedFile = await picker.pickImage(source: source);
+      
+      if (pickedFile != null) {
+        setState(() {
+          _selectedFile = File(pickedFile.path);
+          _fileName = pickedFile.name;
+        });
+      }
+    } catch (e) {
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to pick from gallery: $e',
+      );
+    }
+  }
+
+  Future<void> _pickVideo() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      
+      // Show options for video source
+      final ImageSource? source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (BuildContext context) {
+          return SafeArea(
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.video_library, color: Color(0xFF34A853)),
+                  title: const Text('Video Library', style: TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.videocam, color: Color(0xFF34A853)),
+                  title: const Text('Record Video', style: TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.pop(context, ImageSource.camera),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (source == null) return;
+
+      final XFile? pickedFile = await picker.pickVideo(source: source);
+      
+      if (pickedFile != null) {
+        setState(() {
+          _selectedFile = File(pickedFile.path);
+          _fileName = pickedFile.name;
+        });
+      }
+    } catch (e) {
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to pick video: $e',
       );
     }
   }
 
   Future<void> _uploadFile() async {
     if (_selectedFile == null || _fileName.isEmpty) {
-      Get.snackbar(
-        'Error',
-        'Please select a file first',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Please select a file first',
       );
       return;
     }
@@ -72,18 +166,16 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
         },
       );
 
+      // Check if upload was successful
       if (fileModel.id.isNotEmpty) {
         Get.back(result: _fileName);
       } else {
         throw Exception('Upload failed - no file model returned');
       }
     } catch (e) {
-      Get.snackbar(
-        'Upload Failed',
-        'Failed to upload file: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Upload Failed',
+        message: 'Failed to upload file: $e',
       );
     } finally {
       if (mounted) {
@@ -93,6 +185,48 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
         });
       }
     }
+  }
+
+  Widget _buildSelectionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    bool fullWidth = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: fullWidth ? double.infinity : null,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.grey.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 36,
+              color: onTap != null ? const Color(0xFF34A853) : Colors.grey,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: onTap != null ? Colors.white : Colors.grey,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -122,73 +256,91 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            GestureDetector(
-              onTap: _isUploading ? null : _pickFile,
-              child: Container(
+            // Selected file display (if any)
+            if (_selectedFile != null) ...[
+              Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: const Color(0xFF1E1E1E),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: _selectedFile != null 
-                        ? const Color(0xFF34A853) 
-                        : Colors.grey.withValues(alpha: 0.3),
+                    color: const Color(0xFF34A853),
                     width: 2,
                   ),
                 ),
                 child: Column(
                   children: [
-                    Icon(
-                      _selectedFile != null ? Icons.check_circle : Icons.cloud_upload,
+                    const Icon(
+                      Icons.check_circle,
                       size: 48,
-                      color: _selectedFile != null 
-                          ? const Color(0xFF34A853) 
-                          : Colors.grey,
+                      color: Color(0xFF34A853),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Text(
-                      _selectedFile != null 
-                          ? 'File Selected: $_fileName'
-                          : 'Tap to select a file',
-                      style: TextStyle(
-                        color: _selectedFile != null 
-                            ? const Color(0xFF34A853)
-                            : Colors.grey,
+                      _fileName,
+                      style: const TextStyle(
+                        color: Color(0xFF34A853),
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    if (_selectedFile != null) ...[
-                      const SizedBox(height: 8),
-                      FutureBuilder<int>(
-                        future: _selectedFile!.length(),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            final size = snapshot.data!;
-                            String sizeText;
-                            if (size < 1024) {
-                              sizeText = '$size B';
-                            } else if (size < 1024 * 1024) {
-                              sizeText = '${(size / 1024).toStringAsFixed(1)} KB';
-                            } else if (size < 1024 * 1024 * 1024) {
-                              sizeText = '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
-                            } else {
-                              sizeText = '${(size / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-                            }
-                            return Text(
-                              'Size: $sizeText',
-                              style: const TextStyle(color: Colors.grey, fontSize: 14),
-                            );
+                    const SizedBox(height: 8),
+                    FutureBuilder<int>(
+                      future: _selectedFile!.length(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasData) {
+                          final size = snapshot.data!;
+                          String sizeText;
+                          if (size < 1024) {
+                            sizeText = '$size B';
+                          } else if (size < 1024 * 1024) {
+                            sizeText = '${(size / 1024).toStringAsFixed(1)} KB';
+                          } else if (size < 1024 * 1024 * 1024) {
+                            sizeText = '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+                          } else {
+                            sizeText = '${(size / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
                           }
-                          return const SizedBox.shrink();
-                        },
-                      ),
-                    ],
+                          return Text(
+                            'Size: $sizeText',
+                            style: const TextStyle(color: Colors.grey, fontSize: 14),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
+            ],
+            // Selection buttons
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSelectionButton(
+                    icon: Icons.photo_library,
+                    label: 'Photos',
+                    onTap: _isUploading ? null : _pickFromGallery,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildSelectionButton(
+                    icon: Icons.videocam,
+                    label: 'Videos',
+                    onTap: _isUploading ? null : _pickVideo,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildSelectionButton(
+              icon: Icons.insert_drive_file,
+              label: 'Browse Files',
+              onTap: _isUploading ? null : _pickFile,
+              fullWidth: true,
             ),
             const SizedBox(height: 32),
             const Text(

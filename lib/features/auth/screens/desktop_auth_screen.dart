@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
-import 'package:securesphere/features/auth/services/qr_login_service.dart';
-import 'package:securesphere/features/auth/screens/pin_setup_screen.dart';
-import 'package:securesphere/features/auth/screens/seed_phrase_screen.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/features/auth/services/qr_login_service.dart';
+import 'package:decvault/features/auth/screens/pin_setup_screen.dart';
+import 'package:decvault/features/auth/screens/seed_phrase_screen.dart';
+import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
 
 class DesktopAuthScreen extends StatefulWidget {
   const DesktopAuthScreen({super.key});
@@ -19,6 +22,14 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   final PageController _pageController = PageController();
   late final QrLoginService _qrLoginService;
   
+  SecurityService? get _securityService {
+    try {
+      return Get.find<SecurityService>();
+    } catch (e) {
+      return null;
+    }
+  }
+  
   bool _isLoading = false;
   int _currentStep = 0;
   
@@ -28,7 +39,6 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   
   // Create account form
   final _createSeedController = TextEditingController();
-  bool _seedPhraseVisible = false;
   bool _isCreatingAccount = false;
   
   // QR code login
@@ -38,9 +48,30 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   @override
   void initState() {
     super.initState();
-    _qrLoginService = Get.put(QrLoginService());
+    _qrLoginService = Get.find<QrLoginService>();
     _setupKeyboardShortcuts();
+    _checkLoggedInStatus();
     _checkExistingUser();
+  }
+  
+  Future<void> _checkLoggedInStatus() async {
+    final isLoggedIn = await _authService.checkLoginStatus();
+    if (isLoggedIn) {
+      // Quick check if PIN authentication might be required
+      final securityService = _securityService;
+      if (securityService != null && securityService.hasSecurityEnabled && securityService.isAppLocked) {
+        // Show PIN unlock screen instead of navigating to home
+        Get.dialog(
+          const PinUnlockScreen(),
+          barrierDismissible: false,
+          barrierColor: Colors.black87,
+        );
+        return;
+      }
+      
+      // No PIN required - navigate immediately to home
+      Get.offAllNamed('/home');
+    }
   }
 
   @override
@@ -90,13 +121,19 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error checking existing user: $e');
     }
   }
 
   void _proceedToLogin() {
     if (_seedPhraseController.text.trim().isEmpty) {
-      Get.snackbar('Error', 'Please enter your seed phrase');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter your seed phrase'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
     
@@ -128,15 +165,27 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
 
     try {
       final seedPhrase = await _authService.generateAndStoreSeedPhrase();
+      
+      if (seedPhrase == null || seedPhrase.isEmpty) {
+        throw Exception('Generated seed phrase is null or empty');
+      }
+      
       setState(() {
-        _createSeedController.text = seedPhrase ?? '';
+        _createSeedController.text = seedPhrase;
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      Get.snackbar('Error', 'Failed to generate seed phrase: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to generate seed phrase: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -153,33 +202,57 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       });
 
       if (success) {
-        // Check if PIN setup is needed (simplified check)
-        final hasPin = await _authService.checkLoginStatus();
-        if (hasPin) {
-          Get.offAllNamed('/home');
-        } else {
-          Get.offAll(() => const PinSetupScreen());
+        // Mark initial setup as complete after successful login
+        try {
+          final securityService = Get.find<SecurityService>();
+          await securityService.markInitialSetupComplete();
+        } catch (e) {
+          // SecurityService not available, continue anyway
         }
+        
+        // Always navigate to home - PIN setup will be prompted there if needed
+        Get.offAllNamed('/home');
       } else {
-        Get.snackbar('Error', 'Invalid seed phrase. Please try again.');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Invalid seed phrase. Please try again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         _goBack();
       }
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      Get.snackbar('Error', 'Login failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       _goBack();
     }
   }
 
   Future<void> _createAccount() async {
+    // Prevent duplicate clicks
+    if (_isLoading) {
+      return;
+    }
+    
     setState(() {
       _isLoading = true;
     });
 
     try {
       final success = await _authService.registerUser(_createSeedController.text.trim());
+      
+      if (!mounted) return;
       
       setState(() {
         _isLoading = false;
@@ -188,15 +261,39 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       if (success) {
         Get.offAll(() => const PinSetupScreen());
       } else {
-        Get.snackbar('Error', 'Failed to create account');
-        _goBack();
+        // Registration failed - generate a new seed phrase for next attempt
+        await _generateSeedPhrase();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to create account. Please try again with the new seed phrase shown.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       }
     } catch (e) {
+      
+      if (!mounted) return;
+      
       setState(() {
         _isLoading = false;
       });
-      Get.snackbar('Error', 'Account creation failed: $e');
-      _goBack();
+      
+      // Generate a new seed phrase for next attempt
+      await _generateSeedPhrase();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Account creation failed: ${e.toString()}. Please try again with the new seed phrase.'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
@@ -214,12 +311,14 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
 
   void _copySeedPhrase() {
     Clipboard.setData(ClipboardData(text: _createSeedController.text));
-    Get.snackbar(
-      'Copied',
-      'Seed phrase copied to clipboard',
-      snackPosition: SnackPosition.BOTTOM,
-      duration: const Duration(seconds: 2),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seed phrase copied to clipboard'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _generateQrCode() async {
@@ -236,11 +335,14 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
     });
 
     if (qrData == null) {
-      Get.snackbar(
-        'Error',
-        'Failed to generate QR code. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to generate QR code. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       setState(() {
         _showQrLogin = false;
       });
@@ -257,33 +359,40 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF0F0F0F),
-              Color(0xFF1A1A1A),
-              Color(0xFF0F0F0F),
-            ],
+      body: Column(
+        children: [
+          const CustomTitleBar(backgroundColor: Color(0xFF0F0F0F)),
+          Expanded(
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF0F0F0F),
+                    Color(0xFF1A1A1A),
+                    Color(0xFF0F0F0F),
+                  ],
+                ),
+              ),
+              child: Row(
+                children: [
+                  // Left Panel - Branding
+                  Expanded(
+                    flex: 5,
+                    child: _buildBrandingPanel(),
+                  ),
+                  
+                  // Right Panel - Authentication
+                  Expanded(
+                    flex: 4,
+                    child: _buildAuthPanel(),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            // Left Panel - Branding
-            Expanded(
-              flex: 5,
-              child: _buildBrandingPanel(),
-            ),
-            
-            // Right Panel - Authentication
-            Expanded(
-              flex: 4,
-              child: _buildAuthPanel(),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -291,25 +400,24 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   Widget _buildBrandingPanel() {
     return Container(
       padding: const EdgeInsets.all(48),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Logo and Title
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1E8E3E), Color(0xFF34A853)],
-                  ),
+                  color: Colors.white.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(
-                  Icons.security,
-                  color: Colors.white,
-                  size: 32,
+                child: Image.asset(
+                  'assets/logo/green.png',
+                  width: 56,
+                  height: 56,
                 ),
               ),
               const SizedBox(width: 20),
@@ -317,7 +425,7 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'SecureSphere',
+                    'DecVault',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -421,6 +529,7 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -856,21 +965,6 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
                       label: const Text('Copy'),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _seedPhraseVisible = !_seedPhraseVisible;
-                        });
-                      },
-                      icon: Icon(
-                        _seedPhraseVisible ? Icons.visibility_off : Icons.visibility,
-                        size: 18,
-                      ),
-                      label: Text(_seedPhraseVisible ? 'Hide' : 'Show'),
-                    ),
-                  ),
                 ],
               ),
             ],
@@ -883,7 +977,7 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: _goBack,
+                onPressed: _isLoading ? null : _goBack,
                 child: const Text('Back'),
               ),
             ),
@@ -891,8 +985,14 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
             Expanded(
               flex: 2,
               child: ElevatedButton(
-                onPressed: _createSeedController.text.isNotEmpty ? _createAccount : null,
-                child: const Text('Continue'),
+                onPressed: (_createSeedController.text.isNotEmpty && !_isLoading) ? _createAccount : null,
+                child: _isLoading 
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Continue'),
               ),
             ),
           ],

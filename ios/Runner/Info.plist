@@ -5,7 +5,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Securesphere</string>
+		<string>DecVault</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>securesphere</string>
+		<string>decvault</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -49,16 +49,16 @@
 		<true/>
 		<!-- Face ID / Touch ID Permission -->
 		<key>NSFaceIDUsageDescription</key>
-		<string>SecureSphere uses Face ID for secure authentication to protect your passwords and files.</string>
+		<string>DecVault uses Face ID for secure authentication to protect your passwords and files.</string>
 		<!-- Photo Library Access (for file_picker) -->
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>SecureSphere needs access to your photo library to allow you to select and upload images to your secure vault.</string>
-			<!-- Camera Access (for file_picker and QR code scanning) -->
-	<key>NSCameraUsageDescription</key>
-	<string>SecureSphere needs camera access to scan QR codes for device pairing and to take photos for your secure vault.</string>
+		<string>DecVault needs access to your photo library to allow you to select and upload images to your secure vault.</string>
+		<!-- Camera Access (for file_picker and QR code scanning) -->
+		<key>NSCameraUsageDescription</key>
+		<string>DecVault needs camera access to scan QR codes for device pairing and to take photos for your secure vault.</string>
 		<!-- Local Network Access (for SIA connectivity) -->
 		<key>NSLocalNetworkUsageDescription</key>
-		<string>SecureSphere needs local network access to connect to SIA storage nodes for decentralized file storage.</string>
+		<string>DecVault needs local network access to connect to SIA storage nodes for decentralized file storage.</string>
 		<!-- Documents Folder Access -->
 		<key>LSSupportsOpeningDocumentsInPlace</key>
 		<true/>
@@ -69,18 +69,15 @@
 		<array>
 			<dict>
 				<key>CFBundleURLName</key>
-				<string>securesphere.deeplink</string>
+				<string>decvault.deeplink</string>
 				<key>CFBundleURLSchemes</key>
 				<array>
-					<string>securesphere</string>
+					<string>decvault</string>
 				</array>
 			</dict>
 		</array>
-		<!-- Background App Refresh -->
-		<key>UIBackgroundModes</key>
-		<array>
-			<string>background-processing</string>
-		</array>
+		<!-- Background App Refresh - Removed as not needed for password manager -->
+		<!-- UIBackgroundModes removed to avoid validation issues -->
 		<!-- File Types Support -->
 		<key>UTExportedTypeDeclarations</key>
 		<array>
@@ -90,14 +87,14 @@
 					<string>public.data</string>
 				</array>
 				<key>UTTypeDescription</key>
-				<string>SecureSphere File</string>
+				<string>DecVault File</string>
 				<key>UTTypeIdentifier</key>
-				<string>com.securesphere.file</string>
+				<string>com.decvault.app.file</string>
 				<key>UTTypeTagSpecification</key>
 				<dict>
 					<key>public.filename-extension</key>
 					<array>
-						<string>ssp</string>
+						<string>dv</string>
 					</array>
 				</dict>
 			</dict>

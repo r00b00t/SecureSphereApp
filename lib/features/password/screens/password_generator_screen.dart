@@ -2,9 +2,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
-import 'package:securesphere/common/widgets/app_drawer.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/models/password_model.dart';
+import 'package:decvault/common/widgets/app_drawer.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class PasswordGeneratorScreen extends StatefulWidget {
   const PasswordGeneratorScreen({super.key});
@@ -87,10 +88,9 @@ class _PasswordGeneratorScreenState extends State<PasswordGeneratorScreen> {
   
   Future<void> _savePassword() async {
     if (_titleController.text.isEmpty) {
-      Get.snackbar(
-        'Error',
-        'Please enter a title for the password',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Please enter a title for the password',
       );
       return;
     }
@@ -109,10 +109,9 @@ class _PasswordGeneratorScreenState extends State<PasswordGeneratorScreen> {
       
       await _passwordRepo.addPassword(newPassword);
       
-      Get.snackbar(
-        'Success',
-        'Password saved successfully',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showSuccess(
+        title: 'Success',
+        message: 'Password saved successfully',
       );
       
       // Clear form fields
@@ -126,10 +125,9 @@ class _PasswordGeneratorScreenState extends State<PasswordGeneratorScreen> {
       // Generate a new password
       _generatePassword();
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to save password: $e',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to save password: $e',
       );
     }
   }
@@ -141,174 +139,346 @@ class _PasswordGeneratorScreenState extends State<PasswordGeneratorScreen> {
       appBar: AppBar(
         title: const Text('Password Generator'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Password generation options
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF121212),
+              const Color(0xFF1E1E1E),
+              Theme.of(context).primaryColor.withValues(alpha: 0.08),
+            ],
+          ),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Generated password display - moved to top
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Theme.of(context).primaryColor.withValues(alpha: 0.15),
+                      Theme.of(context).colorScheme.secondary.withValues(alpha: 0.08),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(context).primaryColor.withValues(alpha: 0.2),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(24.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Password Options',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Password Length:'),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.remove),
-                              onPressed: _passwordLength > 4
-                                  ? () {
-                                      setState(() {
-                                        _passwordLength--;
-                                      });
-                                      _generatePassword();
-                                    }
-                                  : null,
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Theme.of(context).primaryColor,
+                                Theme.of(context).colorScheme.secondary,
+                              ],
                             ),
-                            Text('$_passwordLength'),
-                            IconButton(
-                              icon: const Icon(Icons.add),
-                              onPressed: _passwordLength < 32
-                                  ? () {
-                                      setState(() {
-                                        _passwordLength++;
-                                      });
-                                      _generatePassword();
-                                    }
-                                  : null,
-                            ),
-                          ],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.vpn_key,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Generated Password',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'Tap to copy',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.refresh,
+                            color: Theme.of(context).primaryColor,
+                            size: 28,
+                          ),
+                          onPressed: _generatePassword,
+                          tooltip: 'Generate new',
                         ),
                       ],
                     ),
-                    SwitchListTile(
-                      title: const Text('Include Letters (a-z, A-Z)'),
-                      value: _includeLetters,
-                      onChanged: (value) {
+                    const SizedBox(height: 20),
+                    GestureDetector(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: _generatedPassword));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Password copied to clipboard!'),
+                            backgroundColor: Theme.of(context).primaryColor,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _generatedPassword,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 2,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Icon(
+                              Icons.copy,
+                              color: Theme.of(context).primaryColor,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Password generation options
+              Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF1E1E1E),
+                      Color(0xFF2C2C2C),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.tune, color: Theme.of(context).primaryColor, size: 24),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Password Options',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // Length slider
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Password Length',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).primaryColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Theme.of(context).primaryColor.withValues(alpha: 0.4),
+                            ),
+                          ),
+                          child: Text(
+                            '$_passwordLength',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).primaryColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SliderTheme(
+                      data: SliderThemeData(
+                        trackHeight: 6,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+                      ),
+                      child: Slider(
+                        value: _passwordLength.toDouble(),
+                        min: 4,
+                        max: 32,
+                        divisions: 28,
+                        onChanged: (value) {
+                          setState(() {
+                            _passwordLength = value.toInt();
+                          });
+                          _generatePassword();
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // Options switches
+                    _buildOptionSwitch(
+                      'Include Letters (a-z, A-Z)',
+                      _includeLetters,
+                      Icons.text_fields,
+                      (value) {
                         setState(() {
                           _includeLetters = value;
                         });
                         _generatePassword();
                       },
                     ),
-                    SwitchListTile(
-                      title: const Text('Include Numbers (0-9)'),
-                      value: _includeNumbers,
-                      onChanged: (value) {
+                    const SizedBox(height: 12),
+                    _buildOptionSwitch(
+                      'Include Numbers (0-9)',
+                      _includeNumbers,
+                      Icons.pin,
+                      (value) {
                         setState(() {
                           _includeNumbers = value;
                         });
                         _generatePassword();
                       },
                     ),
-                    SwitchListTile(
-                      title: const Text('Include Symbols (!@#\$%^&*)'),
-                      value: _includeSymbols,
-                      onChanged: (value) {
+                    const SizedBox(height: 12),
+                    _buildOptionSwitch(
+                      'Include Symbols (!@#\$%^&*)',
+                      _includeSymbols,
+                      Icons.tag,
+                      (value) {
                         setState(() {
                           _includeSymbols = value;
                         });
                         _generatePassword();
                       },
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _generatePassword,
-                      child: const Text('Generate New Password'),
-                    ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            
-            // Generated password display
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Generated Password',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _generatedPassword,
-                              style: const TextStyle(fontFamily: 'monospace', fontSize: 16),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.copy),
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: _generatedPassword));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Password copied to clipboard')),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
+              const SizedBox(height: 20),
+              
+              // Save password form
+              Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF1E1E1E),
+                      Color(0xFF2C2C2C),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            
-            // Save password form
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Save Password',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    Row(
+                      children: [
+                        Icon(Icons.save, color: Theme.of(context).primaryColor, size: 24),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Save Password',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 20),
                     TextField(
                       controller: _titleController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Title *',
                         hintText: 'e.g., Gmail, Facebook',
+                        prefixIcon: Icon(Icons.title, color: Theme.of(context).primaryColor),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.3),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: _usernameController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Username/Email',
                         hintText: 'e.g., user@example.com',
+                        prefixIcon: Icon(Icons.person, color: Theme.of(context).primaryColor),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.3),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
                       value: _selectedCategory,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Category',
-                        prefixIcon: Icon(Icons.category),
-                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(_getCategoryIcon(_selectedCategory), color: Theme.of(context).primaryColor),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.3),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       items: _categories.map((category) {
                         return DropdownMenuItem<String>(
@@ -330,24 +500,89 @@ class _PasswordGeneratorScreenState extends State<PasswordGeneratorScreen> {
                         }
                       },
                     ),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: _notesController,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes',
+                      decoration: InputDecoration(
+                        labelText: 'Notes (Optional)',
+                        hintText: 'Add any additional information...',
+                        prefixIcon: Padding(
+                          padding: const EdgeInsets.only(bottom: 40),
+                          child: Icon(Icons.notes, color: Theme.of(context).primaryColor),
+                        ),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.3),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       maxLines: 3,
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _savePassword,
-                      child: const Text('Save Password'),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _savePassword,
+                        style: ElevatedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 4,
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.save, size: 24),
+                            SizedBox(width: 12),
+                            Text(
+                              'Save Password',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildOptionSwitch(String title, bool value, IconData icon, Function(bool) onChanged) {
+    return Container(
+      decoration: BoxDecoration(
+        color: value 
+            ? Theme.of(context).primaryColor.withValues(alpha: 0.15)
+            : Colors.black.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: value 
+              ? Theme.of(context).primaryColor.withValues(alpha: 0.5)
+              : Colors.grey.withValues(alpha: 0.2),
+          width: value ? 2 : 1,
+        ),
+      ),
+      child: SwitchListTile(
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: value ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+        secondary: Icon(
+          icon,
+          color: value ? Theme.of(context).primaryColor : Colors.grey,
+        ),
+        value: value,
+        onChanged: onChanged,
       ),
     );
   }

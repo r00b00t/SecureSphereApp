@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../backup_service.dart';
-import 'package:securesphere/common/widgets/app_drawer.dart';
+import 'package:decvault/common/widgets/app_drawer.dart';
 
 class BackupsScreen extends StatefulWidget {
   const BackupsScreen({super.key});
@@ -55,9 +55,21 @@ class _BackupsScreenState extends State<BackupsScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _backupsFuture,
-        builder: (context, snapshot) {
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF121212),
+              const Color(0xFF1E1E1E),
+              Theme.of(context).primaryColor.withValues(alpha: 0.08),
+            ],
+          ),
+        ),
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _backupsFuture,
+          builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
           }
@@ -66,13 +78,42 @@ class _BackupsScreenState extends State<BackupsScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.backup_outlined, size: 80, color: Color(0xFF34A853)),
-                  const SizedBox(height: 24),
-                  Text(
-                    'No backups available',
-                    style: TextStyle(fontSize: 18, color: Colors.white70),
+                  Container(
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF34A853).withValues(alpha: 0.2),
+                          const Color(0xFF34A853).withValues(alpha: 0.1),
+                        ],
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.backup_outlined,
+                      size: 80,
+                      color: Color(0xFF34A853),
+                    ),
                   ),
                   const SizedBox(height: 24),
+                  const Text(
+                    'No Backups Yet',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Protect your data by creating\nyour first backup',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey[400],
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   ElevatedButton.icon(
                     onPressed: () async {
                       try {
@@ -90,10 +131,17 @@ class _BackupsScreenState extends State<BackupsScreen> {
                         );
                       }
                     },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Create Your First Backup'),
+                    icon: const Icon(Icons.add, size: 24),
+                    label: const Text(
+                      'Create Your First Backup',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
                     ),
                   ),
                 ],
@@ -228,7 +276,8 @@ class _BackupsScreenState extends State<BackupsScreen> {
               );
             },
           );
-        },
+          },
+        ),
       ),
     );
   }

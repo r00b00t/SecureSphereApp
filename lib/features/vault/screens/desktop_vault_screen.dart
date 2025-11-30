@@ -3,17 +3,19 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:securesphere/features/vault/models/file_model.dart';
-import 'package:securesphere/features/vault/repositories/file_repository.dart';
-import 'package:securesphere/features/vault/screens/file_detail_screen.dart';
+import 'package:decvault/features/vault/models/file_model.dart';
+import 'package:decvault/features/vault/repositories/file_repository.dart';
+import 'package:decvault/features/vault/screens/file_detail_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cross_file/cross_file.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
-import 'package:securesphere/features/sia/screens/sia_password_required_screen.dart';
-import 'package:securesphere/features/auth/services/security_service.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
+import 'package:decvault/features/sia/screens/sia_password_required_screen.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class DesktopVaultScreen extends StatefulWidget {
   const DesktopVaultScreen({super.key});
@@ -58,22 +60,12 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
 
   Future<bool> _checkSiaConnectivity({String? action}) async {
     if (!_fileRepo.isSiaUploadAvailable) {
-      Get.snackbar(
-        'SIA Not Connected',
-        action != null 
+      SnackbarUtils.showWarning(
+        title: 'SIA Not Connected',
+        message: action != null 
           ? 'Cannot $action. Please go to Settings → Backup & Storage → Connect your SIA node first.'
           : 'SIA is not connected. Please go to Settings → Backup & Storage to connect your SIA node.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
         duration: const Duration(seconds: 5),
-        mainButton: TextButton(
-          onPressed: () {
-            Get.back(); // Close snackbar
-            Get.offAllNamed('/settings');
-          },
-          child: const Text('Go to Settings', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        ),
       );
       return false;
     }
@@ -81,7 +73,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
     // Additional check for SIA password when using self-hosted
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
       if (backupOption == 'Self-Hosted SIA Node') {
         final siaService = Get.find<SiaService>();
@@ -90,19 +82,15 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         if (isPasswordMissing) {
           final result = await Get.to(() => const SiaPasswordRequiredScreen());
           if (result != true) {
-            Get.snackbar(
-              'SIA Password Required',
-              'SIA password is needed to access the vault. Please provide your SIA password.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.orange.withOpacity(0.8),
-              colorText: Colors.white,
+            SnackbarUtils.showWarning(
+              title: 'SIA Password Required',
+              message: 'SIA password is needed to access the vault. Please provide your SIA password.',
             );
             return false;
           }
         }
       }
     } catch (e) {
-      debugPrint('VAULT: Error checking SIA password state: $e');
     }
     
     return true;
@@ -164,6 +152,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   }
 
   Future<void> _loadFiles() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
@@ -173,6 +162,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       if (_fileRepo.isSiaUploadAvailable) {
         final siaVaultFiles = await _fileRepo.getSiaVaultFiles();
         
+        if (!mounted) return;
         setState(() {
           _files = siaVaultFiles;
           _filteredFiles = List.from(siaVaultFiles);
@@ -181,12 +171,14 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       } else {
         // Fallback to local files if SIA not available - same as mobile
         final allFiles = await _fileRepo.getAllFiles();
+        if (!mounted) return;
         final siaFiles = allFiles.where((file) => 
           file.tags.contains('sia-uploaded') ||
           file.tags.contains('sia-synced') ||
           file.tags.contains('sia-vault')
         ).toList();
         
+        if (!mounted) return;
         setState(() {
           _files = siaFiles;
           _filteredFiles = List.from(siaFiles);
@@ -196,7 +188,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       
       _sortFiles();
     } catch (e) {
-      debugPrint('Error loading files: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -210,28 +202,15 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                         errorMessage.contains('network');
       
       if (isSiaError) {
-        Get.snackbar(
-          'SIA Connection Required',
-          'Unable to load vault files. Please go to Settings → Backup & Storage and connect your SIA node first.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showWarning(
+          title: 'SIA Connection Required',
+          message: 'Unable to load vault files. Please go to Settings → Backup & Storage and connect your SIA node first.',
           duration: const Duration(seconds: 6),
-          mainButton: TextButton(
-            onPressed: () {
-              Get.back(); // Close snackbar
-              Get.offAllNamed('/settings');
-            },
-            child: const Text('Go to Settings', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
         );
       } else {
-        Get.snackbar(
-          'Error',
-          'Failed to load vault files: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'Failed to load vault files: $e',
         );
       }
     }
@@ -345,12 +324,9 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         );
         
         if (updatedFile.path.isEmpty) {
-          Get.snackbar(
-            'Error',
-            'Could not locate downloaded file. Please try downloading again.',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red.withOpacity(0.8),
-            colorText: Colors.white,
+          SnackbarUtils.showError(
+            title: 'Error',
+            message: 'Could not locate downloaded file. Please try downloading again.',
           );
           return;
         }
@@ -375,39 +351,27 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
             sharePositionOrigin: rect,
           );
           
-          Get.snackbar(
-            'Sharing',
-            'Share dialog opened for ${file.name}',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-            colorText: Colors.white,
+          SnackbarUtils.showSuccess(
+            title: 'Sharing',
+            message: 'Share dialog opened for ${file.name}',
             duration: const Duration(seconds: 2),
           );
         } else {
-          Get.snackbar(
-            'Error',
-            'File not found locally. Please download it first.',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red.withOpacity(0.8),
-            colorText: Colors.white,
+          SnackbarUtils.showError(
+            title: 'Error',
+            message: 'File not found locally. Please download it first.',
           );
         }
       } else {
-        Get.snackbar(
-          'Error',
-          'Unable to share this file. Please download it first.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'Unable to share this file. Please download it first.',
         );
       }
     } catch (e) {
-      Get.snackbar(
-        'Share Error',
-        'Failed to share file: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Share Error',
+        message: 'Failed to share file: $e',
       );
     }
   }
@@ -420,7 +384,6 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       final securityService = Get.find<SecurityService>();
       await securityService.markUserActive();
     } catch (e) {
-      print('Could not access SecurityService: $e');
     }
 
     // Check SIA connectivity before uploading
@@ -441,15 +404,15 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         }
       }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to select files: $e',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to select files: $e',
       );
     }
   }
 
   Future<void> _uploadSingleFile(File file, String fileName) async {
+    if (!mounted) return;
     setState(() {
       _isUploading = true;
       _uploadProgress = 0.0;
@@ -461,36 +424,37 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         file: file,
         originalName: fileName,
         onProgress: (progress) {
+          if (!mounted) return;
           setState(() {
             _uploadProgress = progress / 100.0; // Convert to 0-1 range
           });
         },
       );
 
+      if (!mounted) return;
       setState(() {
         _isUploading = false;
         _uploadProgress = 0.0;
         _uploadingFileName = '';
       });
 
-      Get.snackbar(
-        'Success',
-        'File uploaded successfully',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showSuccess(
+        title: 'Success',
+        message: 'File uploaded successfully',
       );
 
       _loadFiles();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isUploading = false;
         _uploadProgress = 0.0;
         _uploadingFileName = '';
       });
 
-      Get.snackbar(
-        'Error',
-        'Failed to upload file: $e',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to upload file: $e',
       );
     }
   }
@@ -519,16 +483,14 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         await _fileRepo.deleteFile(file.id);
         _loadFiles();
         setState(() => _selectedFile = null);
-        Get.snackbar(
-          'Success',
-          'File deleted successfully',
-          snackPosition: SnackPosition.BOTTOM,
+        SnackbarUtils.showSuccess(
+          title: 'Success',
+          message: 'File deleted successfully',
         );
       } catch (e) {
-        Get.snackbar(
-          'Error',
-          'Failed to delete file',
-          snackPosition: SnackPosition.BOTTOM,
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'Failed to delete file',
         );
       }
     }
@@ -540,20 +502,20 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
     if (!hasAccess) return;
 
     try {
-      // Automatically save to Downloads/SecureSphere directory like mobile version
+      // Automatically save to Downloads/DecVault directory like mobile version
       String downloadsPath;
       if (Platform.isWindows) {
         final userProfile = Platform.environment['USERPROFILE'] ?? '';
-        downloadsPath = path.join(userProfile, 'Downloads', 'SecureSphere');
+        downloadsPath = path.join(userProfile, 'Downloads', 'DecVault');
       } else if (Platform.isMacOS) {
         final home = Platform.environment['HOME'] ?? '';
-        downloadsPath = path.join(home, 'Downloads', 'SecureSphere');
+        downloadsPath = path.join(home, 'Downloads', 'DecVault');
       } else if (Platform.isLinux) {
         final home = Platform.environment['HOME'] ?? '';
-        downloadsPath = path.join(home, 'Downloads', 'SecureSphere');
+        downloadsPath = path.join(home, 'Downloads', 'DecVault');
       } else {
         // Fallback
-        downloadsPath = path.join(Directory.current.path, 'Downloads', 'SecureSphere');
+        downloadsPath = path.join(Directory.current.path, 'Downloads', 'DecVault');
       }
 
       // Ensure the directory exists
@@ -624,8 +586,12 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
             progressMessage.value = 'Downloading encrypted file...';
           } else if (progress >= 90 && progress < 100) {
             progressMessage.value = 'Decrypting file...';
-          } else {
-            progressMessage.value = 'Download complete!';
+          } else if (progress >= 100) {
+            progressMessage.value = 'Finalizing...';
+            // Close dialog after a short delay to show completion
+            Future.delayed(const Duration(milliseconds: 300), () {
+              SnackbarUtils.safeCloseDialog();
+            });
           }
           
           // At 90% completion, try to capture and COPY the temp file immediately
@@ -642,38 +608,33 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                        filename.contains(file.siaFilename ?? '') ||
                        filename.contains(path.basenameWithoutExtension(file.name)))) {
                     
-                    // Immediately copy to Downloads/SecureSphere to preserve it
+                    // Immediately copy to Downloads/DecVault to preserve it
                     final userProfile = Platform.environment['USERPROFILE'] ?? '';
                     if (userProfile.isNotEmpty) {
-                      final downloadsSecureSphere = path.join(userProfile, 'Downloads', 'SecureSphere');
-                      final outputPath = path.join(downloadsSecureSphere, file.name);
+                      final downloadsDecVault = path.join(userProfile, 'Downloads', 'DecVault');
+                      final outputPath = path.join(downloadsDecVault, file.name);
                       
                       // Fire and forget async copy operation
                       () async {
                         try {
-                          final directory = Directory(downloadsSecureSphere);
+                          final directory = Directory(downloadsDecVault);
                           if (!await directory.exists()) {
                             await directory.create(recursive: true);
                           }
                           await entity.copy(outputPath);
-                          debugPrint('🎯 COPIED temp file: ${entity.path} → $outputPath');
                         } catch (e) {
-                          debugPrint('❌ Error copying temp file: $e');
                         }
                       }();
                       
                       capturedTempFile = outputPath; // Store the target location
-                      debugPrint('🎯 INTERCEPTED temp file: ${entity.path}');
                     } else {
                       capturedTempFile = entity.path;
-                      debugPrint('🎯 INTERCEPTED temp file: $capturedTempFile');
                     }
                     break;
                   }
                 }
               }
             } catch (e) {
-              debugPrint('❌ Error intercepting temp file: $e');
             }
           }
         },
@@ -684,46 +645,41 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       progressMessage.dispose();
 
       // Close progress dialog
-      if (Get.isDialogOpen == true) {
-        Get.back();
-      }
+      SnackbarUtils.safeCloseDialog();
 
       // Handle file location after download with captured temp file
       await _handleDownloadedFile(file, outputFile, downloadsPath, capturedTempFile);
 
     } catch (e) {
       // Close progress dialog if it's open
-      if (Get.isDialogOpen == true) {
-        Get.back();
-      }
+      SnackbarUtils.safeCloseDialog();
       
-      Get.snackbar(
-        'Download Error',
-        'Failed to download file: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 5),
-        mainButton: TextButton(
-          onPressed: () {
-            // Still provide access to Downloads folder in case of error
-            final userProfile = Platform.environment['USERPROFILE'] ?? '';
-            if (userProfile.isNotEmpty) {
-              final downloadsPath = path.join(userProfile, 'Downloads', 'SecureSphere');
-              _openFileLocation(downloadsPath);
-            }
-          },
-          child: const Text('Open Downloads', style: TextStyle(color: Colors.white)),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Download Error: Failed to download file: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Open Downloads',
+              textColor: Colors.white,
+              onPressed: () {
+                // Still provide access to Downloads folder in case of error
+                final userProfile = Platform.environment['USERPROFILE'] ?? '';
+                if (userProfile.isNotEmpty) {
+                  final downloadsPath = path.join(userProfile, 'Downloads', 'DecVault');
+                  _openFileLocation(downloadsPath);
+                }
+              },
+            ),
+          ),
+        );
+      }
     }
   }
 
   Future<void> _handleDownloadedFile(FileModel file, String outputFile, String downloadsPath, [String? capturedTempFile]) async {
     try {
-      debugPrint('🎯 Starting download file handling...');
-      debugPrint('📁 Target output: $outputFile');
-      debugPrint('🔐 Captured temp file: $capturedTempFile');
       
       File? sourceFile;
       
@@ -732,9 +688,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         final tempFile = File(capturedTempFile);
         if (await tempFile.exists()) {
           sourceFile = tempFile;
-          debugPrint('✅ Using captured temp file: $capturedTempFile');
         } else {
-          debugPrint('❌ Captured temp file no longer exists: $capturedTempFile');
         }
       }
       
@@ -750,19 +704,16 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
           final userProfile = Platform.environment['USERPROFILE'] ?? '';
           if (userProfile.isNotEmpty) {
             possibleLocations.addAll([
-              path.join(userProfile, 'Downloads', 'SecureSphere', file.name),
+              path.join(userProfile, 'Downloads', 'DecVault', file.name),
               path.join(userProfile, 'Downloads', file.name),
             ]);
           }
         }
         
-        debugPrint('🔍 Checking possible download locations:');
         for (String location in possibleLocations) {
-          debugPrint('  - $location');
           final testFile = File(location);
           if (await testFile.exists()) {
             sourceFile = testFile;
-            debugPrint('✅ Found file at: $location');
             break;
           }
         }
@@ -771,49 +722,44 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       // If we found a source file, move it to the target location
       if (sourceFile != null) {
         if (sourceFile.path != outputFile) {
-          debugPrint('📁 Copying file from ${sourceFile.path} to $outputFile');
           await sourceFile.copy(outputFile);
           
           // Clean up source file if it was a temp file
           if (sourceFile.path.contains('Temp') || sourceFile.path == capturedTempFile) {
             try {
               await sourceFile.delete();
-              debugPrint('✅ Cleaned up temp file: ${sourceFile.path}');
             } catch (e) {
-              debugPrint('⚠️ Could not clean up temp file: $e');
             }
           }
         } else {
-          debugPrint('✅ File already in correct location');
         }
         
         // Show success message
-        Get.snackbar(
-          'Download Complete',
-          'File saved to Downloads/SecureSphere',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 4),
-          mainButton: TextButton(
-            onPressed: () {
-              _openFileLocation(outputFile);
-            },
-            child: const Text('Show in Folder', style: TextStyle(color: Colors.white)),
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Download Complete - File saved to Downloads/DecVault'),
+              backgroundColor: const Color(0xFF34A853),
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'Show in Folder',
+                textColor: Colors.white,
+                onPressed: () {
+                  _openFileLocation(outputFile);
+                },
+              ),
+            ),
+          );
+        }
         return;
       }
       
       // If not found in expected locations, look in temp directory
-      debugPrint('🔍 File not found in expected locations, searching temp directory...');
       File? downloadedFile;
       final tempDir = Directory.systemTemp;
       
       try {
         final tempFiles = tempDir.listSync();
-        debugPrint('📁 Temp directory: ${tempDir.path}');
-        debugPrint('📄 Looking for patterns: ${file.name}, ${file.siaFilename}, ${path.basenameWithoutExtension(file.name)}');
         
         List<File> encryptedFiles = [];
         for (final entity in tempFiles) {
@@ -821,7 +767,6 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
             final filename = path.basename(entity.path);
             if (filename.startsWith('encrypted_')) {
               encryptedFiles.add(entity);
-              debugPrint('🔐 Found encrypted file: $filename');
               
               // Check if this file matches our target
               if (filename.contains(file.name) || 
@@ -829,102 +774,73 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                   filename.contains(path.basenameWithoutExtension(file.name)) ||
                   filename.contains(file.id)) {
                 downloadedFile = entity;
-                debugPrint('✅ Matched temp file: ${entity.path}');
                 break;
               }
             }
           }
         }
         
-        debugPrint('📊 Total encrypted files found: ${encryptedFiles.length}');
         
         // If no specific match, try the most recent encrypted file
         if (downloadedFile == null && encryptedFiles.isNotEmpty) {
           // Sort by modification time and take the most recent
           encryptedFiles.sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
           downloadedFile = encryptedFiles.first;
-          debugPrint('🎯 Using most recent encrypted file: ${downloadedFile.path}');
         }
         
       } catch (e) {
-        debugPrint('❌ Error searching temp directory: $e');
       }
       
       if (downloadedFile != null) {
-        // Move file from temp to Downloads/SecureSphere
+        // Move file from temp to Downloads/DecVault
         await downloadedFile.copy(outputFile);
         
         // Clean up the temporary file
         try {
           await downloadedFile.delete();
-          debugPrint('✅ Cleaned up temp file: ${downloadedFile.path}');
         } catch (e) {
-          debugPrint('Could not clean up temporary file: $e');
         }
         
         // Show success message
-        Get.snackbar(
-          'Download Complete',
-          'File saved to Downloads/SecureSphere',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showSuccess(
+          title: 'Download Complete',
+          message: 'File saved to Downloads/DecVault',
           duration: const Duration(seconds: 4),
-          mainButton: TextButton(
-            onPressed: () {
-              _openFileLocation(outputFile);
-            },
-            child: const Text('Show in Folder', style: TextStyle(color: Colors.white)),
-          ),
         );
               } else {
           // Last resort: comprehensive search of Downloads directory
-          debugPrint('🔍 No temp file found, doing comprehensive Downloads search...');
           
           if (Platform.isWindows) {
             final userProfile = Platform.environment['USERPROFILE'] ?? '';
             if (userProfile.isNotEmpty) {
               final downloadsDirs = [
                 path.join(userProfile, 'Downloads'),
-                path.join(userProfile, 'Downloads', 'SecureSphere'),
+                path.join(userProfile, 'Downloads', 'DecVault'),
               ];
               
               for (String dir in downloadsDirs) {
                 try {
                   final directory = Directory(dir);
                   if (await directory.exists()) {
-                    debugPrint('🔍 Searching in: $dir');
                     final files = directory.listSync();
                     for (final entity in files) {
                       if (entity is File) {
                         final filename = path.basename(entity.path);
-                        debugPrint('  📄 Found: $filename');
                         
                         // Check if this matches our file
                         if (filename == file.name ||
                             filename.contains(path.basenameWithoutExtension(file.name)) ||
                             filename.contains(file.id)) {
-                          debugPrint('✅ Found matching file: ${entity.path}');
                           
                           // Move to our target location if different
                           if (entity.path != outputFile) {
                             await entity.copy(outputFile);
-                            debugPrint('📁 Copied to: $outputFile');
                           }
                           
-                          Get.snackbar(
-                            'Download Complete',
-                            'File found and moved to Downloads/SecureSphere',
-                            snackPosition: SnackPosition.BOTTOM,
-                            backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-                            colorText: Colors.white,
+                          SnackbarUtils.showSuccess(
+                            title: 'Download Complete',
+                            message: 'File found and moved to Downloads/DecVault',
                             duration: const Duration(seconds: 4),
-                            mainButton: TextButton(
-                              onPressed: () {
-                                _openFileLocation(outputFile);
-                              },
-                              child: const Text('Show in Folder', style: TextStyle(color: Colors.white)),
-                            ),
                           );
                           return;
                         }
@@ -932,45 +848,24 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                     }
                   }
                 } catch (e) {
-                  debugPrint('❌ Error searching $dir: $e');
                 }
               }
             }
           }
           
           // If still not found, show generic success message
-          debugPrint('⚠️ File download completed but location unclear');
-          Get.snackbar(
-            'Download Complete',
-            'File downloaded successfully. Check Downloads/SecureSphere folder.',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-            colorText: Colors.white,
+          SnackbarUtils.showSuccess(
+            title: 'Download Complete',
+            message: 'File downloaded successfully. Check Downloads/DecVault folder.',
             duration: const Duration(seconds: 6),
-            mainButton: TextButton(
-              onPressed: () {
-                _openFileLocation(downloadsPath);
-              },
-              child: const Text('Open Downloads', style: TextStyle(color: Colors.white)),
-            ),
           );
         }
       
     } catch (e) {
-      debugPrint('Download handling error: $e');
-      Get.snackbar(
-        'Download Warning',
-        'File was downloaded but could not be moved to Downloads/SecureSphere folder.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showWarning(
+        title: 'Download Warning',
+        message: 'File was downloaded but could not be moved to Downloads/DecVault folder.',
         duration: const Duration(seconds: 6),
-        mainButton: TextButton(
-          onPressed: () {
-            _openFileLocation(downloadsPath);
-          },
-          child: const Text('Open Downloads', style: TextStyle(color: Colors.white)),
-        ),
       );
     }
   }
@@ -1009,7 +904,6 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Could not open file location: $e');
     }
   }
 
@@ -1050,7 +944,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Secure Vault',
+                        'Files Vault',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -1265,30 +1159,28 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   }
 
   Widget _buildMainContent() {
-    return Expanded(
-      child: Container(
-        color: const Color(0xFF121212),
-        child: Column(
-          children: [
-            _buildToolbar(),
-            if (_isUploading) _buildUploadProgress(),
-            Expanded(
-              child: Row(
-                children: [
+    return Container(
+      color: const Color(0xFF121212),
+      child: Column(
+        children: [
+          _buildToolbar(),
+          if (_isUploading) _buildUploadProgress(),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: _buildFileGrid(),
+                ),
+                if (_selectedFile != null)
                   Expanded(
-                    flex: 2,
-                    child: _buildFileGrid(),
+                    flex: 1,
+                    child: _buildFileDetails(),
                   ),
-                  if (_selectedFile != null)
-                    Expanded(
-                      flex: 1,
-                      child: _buildFileDetails(),
-                    ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1883,70 +1775,73 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
-          DropTarget(
-            onDragDone: (detail) async {
-              setState(() {
-                _isDragOver = false;
-              });
-              
-              if (_isUploading) {
-                Get.snackbar(
-                  'Upload in Progress',
-                  'Please wait for the current upload to complete',
-                  snackPosition: SnackPosition.BOTTOM,
-                  backgroundColor: Colors.orange.withOpacity(0.8),
-                  colorText: Colors.white,
-                );
-                return;
-              }
-              
-              // Check SIA connectivity before uploading
-              final hasAccess = await _checkSiaConnectivity(action: 'upload files');
-              if (!hasAccess) return;
-              
-              // Handle dropped files
-              for (final file in detail.files) {
-                try {
-                  final fileObj = File(file.path);
-                  await _uploadSingleFile(fileObj, file.name);
-                } catch (e) {
-                  Get.snackbar(
-                    'Error',
-                    'Failed to upload ${file.name}: $e',
-                    snackPosition: SnackPosition.BOTTOM,
-                    backgroundColor: Colors.red.withOpacity(0.8),
-                    colorText: Colors.white,
-                  );
-                }
-              }
-            },
-            onDragEntered: (detail) {
-              if (!_isUploading) {
-                setState(() {
-                  _isDragOver = true;
-                });
-              }
-            },
-            onDragExited: (detail) {
-              setState(() {
-                _isDragOver = false;
-              });
-            },
-            child: Container(
-              decoration: _isDragOver
-                  ? BoxDecoration(
-                      border: Border.all(
-                        color: const Color(0xFF34A853),
-                        width: 2,
-                        style: BorderStyle.solid,
-                      ),
-                      color: const Color(0xFF34A853).withOpacity(0.1),
-                    )
-                  : null,
-              child: _buildMainContent(),
+          const CustomTitleBar(),
+          Expanded(
+            child: Row(
+              children: [
+                _buildSidebar(),
+                Expanded(
+                  child: DropTarget(
+                    onDragDone: (detail) async {
+                      setState(() {
+                        _isDragOver = false;
+                      });
+                      
+                      if (_isUploading) {
+                        SnackbarUtils.showWarning(
+                          title: 'Upload in Progress',
+                          message: 'Please wait for the current upload to complete',
+                        );
+                        return;
+                      }
+                      
+                      // Check SIA connectivity before uploading
+                      final hasAccess = await _checkSiaConnectivity(action: 'upload files');
+                      if (!hasAccess) return;
+                      
+                      // Handle dropped files
+                      for (final file in detail.files) {
+                        try {
+                          final fileObj = File(file.path);
+                          await _uploadSingleFile(fileObj, file.name);
+                        } catch (e) {
+                          SnackbarUtils.showError(
+                            title: 'Error',
+                            message: 'Failed to upload ${file.name}: $e',
+                          );
+                        }
+                      }
+                    },
+                    onDragEntered: (detail) {
+                      if (!_isUploading) {
+                        setState(() {
+                          _isDragOver = true;
+                        });
+                      }
+                    },
+                    onDragExited: (detail) {
+                      setState(() {
+                        _isDragOver = false;
+                      });
+                    },
+                    child: Container(
+                      decoration: _isDragOver
+                          ? BoxDecoration(
+                              border: Border.all(
+                                color: const Color(0xFF34A853),
+                                width: 2,
+                                style: BorderStyle.solid,
+                              ),
+                              color: const Color(0xFF34A853).withOpacity(0.1),
+                            )
+                          : null,
+                      child: _buildMainContent(),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

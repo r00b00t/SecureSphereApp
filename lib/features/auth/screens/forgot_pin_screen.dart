@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../services/security_service.dart';
 import 'pin_setup_screen.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class ForgotPinScreen extends StatefulWidget {
   const ForgotPinScreen({super.key});
@@ -44,12 +45,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
       if (success) {
         // Show success message
-        Get.snackbar(
-          'PIN Reset Successful',
-          'Your PIN has been reset. You can now set a new PIN.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showSuccess(
+          title: 'PIN Reset Successful',
+          message: 'Your PIN has been reset. You can now set a new PIN.',
           duration: const Duration(seconds: 3),
         );
 

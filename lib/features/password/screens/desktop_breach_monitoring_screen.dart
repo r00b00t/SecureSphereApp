@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
-import 'package:crypto/crypto.dart';
 import 'dart:convert';
-import 'package:securesphere/features/password/models/password_model.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/models/password_model.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:decvault/config/api_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class DesktopBreachMonitoringScreen extends StatefulWidget {
   const DesktopBreachMonitoringScreen({super.key});
@@ -26,6 +29,7 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
   int _scannedPasswords = 0;
   int _breachedPasswords = 0;
   int _safePasswords = 0;
+  DateTime? _lastScanTime;
   
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -35,7 +39,54 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
   void initState() {
     super.initState();
     _loadPasswords();
+    _loadSavedBreachData();
     _setupKeyboardShortcuts();
+  }
+
+  Future<void> _loadSavedBreachData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTime = prefs.getString('desktop_breach_last_scan');
+      if (savedTime != null) {
+        setState(() {
+          _lastScanTime = DateTime.parse(savedTime);
+        });
+      }
+    } catch (e) {
+    }
+  }
+
+  Future<void> _saveBreachData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('desktop_breach_last_scan', DateTime.now().toIso8601String());
+    } catch (e) {
+    }
+  }
+
+  String _formatScanTime(DateTime time) {
+    final now = DateTime.now();
+    final difference = now.difference(time);
+    
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inHours < 1) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inDays < 1) {
+      return '${difference.inHours}h ago';
+    } else {
+      return '${difference.inDays}d ago';
+    }
+  }
+
+  int get _totalBreachCount {
+    int total = 0;
+    for (var result in _breachResults) {
+      if (result.isBreached) {
+        total += result.breachCount;
+      }
+    }
+    return total;
   }
 
   @override
@@ -81,7 +132,10 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
         _totalPasswords = passwords.length;
       });
     } catch (e) {
-      Get.snackbar('Error', 'Failed to load passwords: $e');
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to load passwords: $e',
+      );
     }
   }
 
@@ -123,54 +177,73 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
         _isScanning = false;
         _hasScanned = true;
         _scanProgress = 'Scan completed';
+        _lastScanTime = DateTime.now();
       });
+      await _saveBreachData();
     } catch (e) {
       setState(() {
         _isScanning = false;
         _scanProgress = 'Scan failed: $e';
       });
-      Get.snackbar('Error', 'Breach scan failed: $e');
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Breach scan failed: $e',
+      );
     }
   }
 
   Future<BreachResult> _checkPasswordBreach(PasswordModel password) async {
     try {
-      // Use SHA-1 hash for Have I Been Pwned API
-      final bytes = utf8.encode(password.encryptedPassword); // In real app, decrypt first
-      final digest = sha1.convert(bytes);
-      final hash = digest.toString().toUpperCase();
-      final prefix = hash.substring(0, 5);
-      final suffix = hash.substring(5);
-
-      final url = Uri.parse('https://api.pwnedpasswords.com/range/$prefix');
+      // Get the actual password from secure storage to check for breaches
+      // The encryptedPassword field stores the actual password value
+      String passwordToCheck = password.encryptedPassword;
+      
+      // If password is empty or too short, skip the API call
+      if (passwordToCheck.isEmpty || passwordToCheck.length < 4) {
+        return BreachResult(
+          password: password,
+          isBreached: false,
+          breachCount: 0,
+          sources: [],
+          lastChecked: DateTime.now(),
+          error: 'Password too short to check',
+        );
+      }
+      
+      final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordToCheck)}');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
-        final lines = response.body.split('\n');
-        for (final line in lines) {
-          if (line.startsWith(suffix)) {
-            final count = int.parse(line.split(':')[1].trim());
-            return BreachResult(
-              password: password,
-              isBreached: true,
-              breachCount: count,
-              lastChecked: DateTime.now(),
-            );
-          }
-        }
+        final data = json.decode(response.body);
+        final bool success = data['success'] ?? false;
+        final int count = data['count'] ?? 0;
+        final List<String> sources = data['sources'] != null 
+            ? (data['sources'] as List).map((s) => s.toString()).toList()
+            : [];
+
+        return BreachResult(
+          password: password,
+          isBreached: count > 0,
+          breachCount: count,
+          sources: sources,
+          lastChecked: DateTime.now(),
+        );
       }
 
       return BreachResult(
         password: password,
         isBreached: false,
         breachCount: 0,
+        sources: [],
         lastChecked: DateTime.now(),
+        error: 'Failed to check password (status ${response.statusCode})',
       );
     } catch (e) {
       return BreachResult(
         password: password,
         isBreached: false,
         breachCount: 0,
+        sources: [],
         lastChecked: DateTime.now(),
         error: e.toString(),
       );
@@ -205,11 +278,18 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
+          const CustomTitleBar(),
           Expanded(
-            child: _buildMainContent(),
+            child: Row(
+              children: [
+                _buildSidebar(),
+                Expanded(
+                  child: _buildMainContent(),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -217,6 +297,8 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
   }
 
   Widget _buildSidebar() {
+    final canPop = Navigator.of(context).canPop();
+    
     return Container(
       width: 300,
       decoration: const BoxDecoration(
@@ -227,6 +309,17 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
       ),
       child: Column(
         children: [
+          // Back button if navigated to this screen
+          if (canPop)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+                tooltip: 'Back',
+              ),
+            ),
           // Header - Fixed at top
           Container(
             padding: const EdgeInsets.all(20),
@@ -331,10 +424,11 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
                       child: Column(
                         children: [
                           _buildStatCard(
-                            'Total Passwords',
-                            _totalPasswords.toString(),
-                            Icons.key,
-                            Colors.blue,
+                            'Total Breaches',
+                            _totalBreachCount.toString(),
+                            Icons.warning_amber,
+                            _totalBreachCount > 0 ? Colors.red : Colors.green,
+                            subtitle: '$_breachedPasswords password${_breachedPasswords != 1 ? 's' : ''}',
                           ),
                           const SizedBox(height: 12),
                           _buildStatCard(
@@ -353,6 +447,33 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
                         ],
                       ),
                     ),
+                    
+                    if (_lastScanTime != null) ...[
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.access_time, color: Colors.blue, size: 16),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Last scan: ${_formatScanTime(_lastScanTime!)}',
+                                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     
                     const SizedBox(height: 20),
                     const Divider(color: Color(0xFF3C4043)),
@@ -407,7 +528,7 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
                         ),
                         SizedBox(height: 4),
                         Text(
-                          'We check your passwords against known data breaches using Have I Been Pwned API. Your passwords are never sent - only secure hashes are used.',
+                          'We check your passwords against known data breaches using our secure breach monitoring API.',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.white70,
@@ -439,7 +560,7 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, {String? subtitle}) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -470,6 +591,16 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
                     fontSize: 12,
                   ),
                 ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -532,7 +663,17 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
 
   Widget _buildMainContent() {
     return Container(
-      color: const Color(0xFF121212),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF121212),
+            const Color(0xFF1E1E1E),
+            const Color(0xFF1E8E3E).withOpacity(0.08),
+          ],
+        ),
+      ),
       child: Column(
         children: [
           _buildToolbar(),
@@ -631,14 +772,14 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
               ),
             ),
             const SizedBox(height: 8),
-                         Text(
-               'Click "Start Scan" to check your passwords for known breaches',
-               style: TextStyle(
-                 fontSize: 14,
-                 color: Colors.white.withOpacity(0.4),
-               ),
-               textAlign: TextAlign.center,
-             ),
+            Text(
+              'Click "Start Scan" to check your passwords for known breaches',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withOpacity(0.4),
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       );
@@ -665,13 +806,13 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
               ),
             ),
             const SizedBox(height: 8),
-                         Text(
-               'Try adjusting your search or filter criteria',
-               style: TextStyle(
-                 fontSize: 14,
-                 color: Colors.white.withOpacity(0.4),
-               ),
-             ),
+            Text(
+              'Try adjusting your search or filter criteria',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white.withOpacity(0.4),
+              ),
+            ),
           ],
         ),
       );
@@ -768,6 +909,64 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
                         ],
                       ],
                     ),
+                    if (result.isBreached && result.sources.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orangeAccent.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.source, color: Colors.orangeAccent, size: 16),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Breach Sources:',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: result.sources.map<Widget>((source) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.orangeAccent.withOpacity(0.3),
+                                        Colors.deepOrangeAccent.withOpacity(0.2),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.5)),
+                                  ),
+                                  child: Text(
+                                    source,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -777,10 +976,9 @@ class _DesktopBreachMonitoringScreenState extends State<DesktopBreachMonitoringS
                 ElevatedButton.icon(
                   onPressed: () {
                     // Navigate to password edit screen
-                    Get.snackbar(
-                      'Security Alert',
-                      'This password has been found in ${result.breachCount} data breaches. Please change it immediately.',
-                      backgroundColor: Colors.red.withOpacity(0.8),
+                    SnackbarUtils.showError(
+                      title: 'Security Alert',
+                      message: 'This password has been found in ${result.breachCount} data breaches. Please change it immediately.',
                     );
                   },
                   icon: const Icon(Icons.edit, size: 16),
@@ -802,6 +1000,7 @@ class BreachResult {
   final PasswordModel password;
   final bool isBreached;
   final int breachCount;
+  final List<String> sources;
   final DateTime lastChecked;
   final String? error;
 
@@ -809,6 +1008,7 @@ class BreachResult {
     required this.password,
     required this.isBreached,
     required this.breachCount,
+    required this.sources,
     required this.lastChecked,
     this.error,
   });

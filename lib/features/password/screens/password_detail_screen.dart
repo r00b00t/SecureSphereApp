@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:securesphere/common/widgets/app_drawer.dart';
+import 'package:decvault/common/widgets/app_drawer.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
-import 'package:securesphere/features/password/screens/add_password_screen.dart';
-import 'package:securesphere/features/password/screens/desktop_add_password_screen.dart';
+import 'package:decvault/features/password/models/password_model.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/screens/add_password_screen.dart';
+import 'package:decvault/features/password/screens/desktop_add_password_screen.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class PasswordDetailScreen extends StatefulWidget {
   final PasswordModel password;
@@ -109,11 +110,9 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
                 icon: const Icon(Icons.copy),
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: value));
-                  Get.snackbar(
-                    'Copied',
-                    'Password copied to clipboard',
-                    snackPosition: SnackPosition.BOTTOM,
-                    duration: const Duration(seconds: 2),
+                  SnackbarUtils.showSnackbar(
+                    title: 'Copied',
+                    message: 'Password copied to clipboard',
                   );
                 },
               ),
@@ -140,17 +139,15 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
         // Close current detail screen since edit will navigate to home
         Navigator.of(context).pop();
       } else {
-        Get.snackbar(
-          'Error',
-          'Unable to load password data for editing',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Unable to load password data for editing',
+      );
       }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to load password: $e',
-        snackPosition: SnackPosition.BOTTOM,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to load password: $e',
       );
     }
   }
@@ -182,20 +179,16 @@ class _PasswordDetailScreenState extends State<PasswordDetailScreen> {
     try {
       final passwordRepository = Get.find<PasswordRepository>();
       await passwordRepository.deletePassword(widget.password.id);
-      Get.snackbar(
-        'Deleted',
-        'Password deleted successfully',
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
+      SnackbarUtils.showSnackbar(
+        title: 'Deleted',
+        message: 'Password deleted successfully',
       );
       // Return true to indicate the password was deleted successfully
       Navigator.of(context).pop(true);
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to delete password: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to delete password: $e',
       );
       // Don't return true on error - this prevents unnecessary reload
     }

@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
 
 /// SIA Configuration model
 class SiaConfig {
@@ -15,8 +15,10 @@ class SiaConfig {
     required this.password,
   });
 
+  /// Get the full renterd URL
   String get renterdUrl => 'http://$ip:$port';
 
+  /// Get the API password
   String get apiPassword => password;
 
   /// Convert to JSON
@@ -58,6 +60,7 @@ class SettingsService {
       if (localConfigJson != null) {
         final localConfig = jsonDecode(localConfigJson) as Map<String, dynamic>;
         
+        // Get the stored password from SIA service
         try {
           final siaService = Get.find<SiaService>();
           final password = await siaService.getStoredPassword();
@@ -107,6 +110,7 @@ class SettingsService {
     }
   }
 
+  /// Check if SIA is verified
   Future<bool> isSiaVerified() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -129,9 +133,9 @@ class SettingsService {
   Future<String> getBackupOption() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(_backupOptionKey) ?? 'SecureSphere Decentralized Server';
+      return prefs.getString(_backupOptionKey) ?? 'DecVault Decentralized Server';
     } catch (e) {
-      return 'SecureSphere Decentralized Server';
+      return 'DecVault Decentralized Server';
     }
   }
 

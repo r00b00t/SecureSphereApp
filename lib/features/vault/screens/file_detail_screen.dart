@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/file_model.dart';
 import '../repositories/file_repository.dart';
 import '../utils/file_utils.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class FileDetailScreen extends StatefulWidget {
   final FileModel file;
@@ -238,12 +239,9 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
     try {
       Share.shareXFiles([XFile(_file.path)], text: 'Sharing file: ${_file.name}');
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to share file: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to share file: $e',
       );
     }
   }
@@ -272,12 +270,9 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
                   Navigator.pop(context, true);
                 }
               } catch (e) {
-                Get.snackbar(
-                  'Error',
-                  'Failed to delete file: $e',
-                  snackPosition: SnackPosition.BOTTOM,
-                  backgroundColor: Colors.red.withOpacity(0.8),
-                  colorText: Colors.white,
+                SnackbarUtils.showError(
+                  title: 'Error',
+                  message: 'Failed to delete file: $e',
                 );
               }
             },

@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
-import 'package:securesphere/features/password/screens/desktop_add_password_screen.dart';
-import 'package:securesphere/features/auth/services/security_service.dart';
-import 'package:securesphere/features/auth/screens/pin_unlock_screen.dart';
-import 'package:securesphere/features/vault/models/file_model.dart';
-import 'package:securesphere/features/vault/repositories/file_repository.dart';
+import 'package:decvault/features/password/models/password_model.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/screens/desktop_add_password_screen.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
+import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
+import 'package:decvault/features/vault/models/file_model.dart';
+import 'package:decvault/features/vault/repositories/file_repository.dart';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class DesktopHomeScreen extends StatefulWidget {
   const DesktopHomeScreen({super.key});
@@ -121,12 +123,14 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
         setState(() {
           _isLoading = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error: Failed to load data'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
-      Get.snackbar(
-        'Error',
-        'Failed to load data',
-        snackPosition: SnackPosition.BOTTOM,
-      );
     }
   }
 
@@ -157,9 +161,12 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
   }
 
   void _clearSearch() {
+    if (!mounted) return;
     _searchController.clear();
     _filterPasswords('');
-    FocusScope.of(context).unfocus();
+    if (mounted) {
+      FocusScope.of(context).unfocus();
+    }
   }
 
   void _addNewPassword() async {
@@ -171,24 +178,33 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
 
   void _editPassword(PasswordModel password) async {
     try {
+      // Get the full password data from secure storage before editing
       final fullPassword = await _passwordRepo.getPassword(password.id);
       
       if (fullPassword != null) {
         // Navigate to edit screen - it will automatically return to home when done
         Get.to(() => DesktopAddPasswordScreen(password: fullPassword));
       } else {
-        Get.snackbar(
-          'Error',
-          'Unable to load password data for editing',
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Error: Unable to load password data for editing'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
       }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to load password: $e',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: Failed to load password: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -219,25 +235,29 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
     if (confirmed == true) {
       try {
         await _passwordRepo.deletePassword(password.id);
-        Get.snackbar(
-          'Deleted',
-          'Password deleted successfully',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-          colorText: Colors.white,
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Success: Password deleted successfully'),
+              backgroundColor: Color(0xFF34A853),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
         _loadData();
         setState(() {
           _selectedPassword = null;
         });
       } catch (e) {
-        Get.snackbar(
-          'Error',
-          'Failed to delete password: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: Failed to delete password: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     }
   }
@@ -278,7 +298,11 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                     color: Colors.white.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.security, color: Colors.white, size: 24),
+                  child: Image.asset(
+                    'assets/logo/white.png',
+                    width: 32,
+                    height: 32,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -286,7 +310,7 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'SecureSphere',
+                        'DecVault',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -294,7 +318,7 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                         ),
                       ),
                       Text(
-                        'Password Manager',
+                        'Decentralized Vault',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 12,
@@ -376,14 +400,59 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                   onPressed: () async {
                     try {
                       final securityService = Get.find<SecurityService>();
-                      final result = await Get.to(() => const PinUnlockScreen());
-                      if (result == true) {
-                        // Lock app functionality
-                        Get.offAllNamed('/auth');
+                      
+                      // Check if PIN or biometric is configured
+                      final hasPIN = await securityService.hasPinSet();
+                      final hasBiometric = securityService.securitySettings.biometricEnabled;
+                      
+                      if (!hasPIN && !hasBiometric) {
+                        // Show dialog to inform user they need to set up security first
+                        Get.dialog(
+                          AlertDialog(
+                            title: const Row(
+                              children: [
+                                Icon(Icons.security, color: Colors.orange),
+                                SizedBox(width: 12),
+                                Text('Security Not Configured'),
+                              ],
+                            ),
+                            content: const Text(
+                              'You need to set up a PIN code or biometric authentication before you can lock the app.\n\n'
+                              'Would you like to go to Settings to set up security?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(Get.context!).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () {
+                                  Navigator.of(Get.context!).pop();
+                                  // Navigate to settings route
+                                  Get.offAllNamed('/settings');
+                                },
+                                child: const Text('Go to Settings'),
+                              ),
+                            ],
+                          ),
+                        );
+                        return;
                       }
+                      
+                      // Lock the app
+                      await securityService.lockApp();
+                      
+                      // Show PIN unlock screen
+                      Get.dialog(
+                        const PinUnlockScreen(),
+                        barrierDismissible: false,
+                        barrierColor: Colors.black87,
+                      );
                     } catch (e) {
-                      // SecurityService not available - just go to auth
-                      Get.offAllNamed('/auth');
+                      SnackbarUtils.showError(
+                        title: 'Error',
+                        message: 'Could not lock app. Please set up security in Settings first.',
+                      );
                     }
                   },
                   icon: const Icon(Icons.lock_outline, size: 16),
@@ -837,12 +906,14 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                     onPressed: () {
                       final actualValue = isPassword ? _selectedPassword!.encryptedPassword : value;
                       Clipboard.setData(ClipboardData(text: actualValue));
-                      Get.snackbar(
-                        'Copied',
-                        '$label copied to clipboard',
-                        snackPosition: SnackPosition.BOTTOM,
-                        duration: const Duration(seconds: 2),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('📋 Copied: $label copied to clipboard'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.copy),
                     iconSize: 18,
@@ -886,10 +957,17 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
-          _buildMainContent(),
+          const CustomTitleBar(),
+          Expanded(
+            child: Row(
+              children: [
+                _buildSidebar(),
+                _buildMainContent(),
+              ],
+            ),
+          ),
         ],
       ),
     );

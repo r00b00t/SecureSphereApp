@@ -124,6 +124,7 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper> with WidgetsB
       // Add small delay to prevent immediate locking after biometric auth
       await Future.delayed(const Duration(milliseconds: 200));
       
+      // Check if we need to show PIN unlock screen
       if (service.hasSecurityEnabled && service.isAppLocked) {
         _showPinUnlock();
       }
@@ -170,6 +171,7 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper> with WidgetsB
     
     // Use a simple state check instead of Obx to avoid dependency issues
     try {
+      // Check if security is enabled and app is locked
       final isLocked = service.isAppLocked;
       final hasSecurityEnabled = service.hasSecurityEnabled;
       

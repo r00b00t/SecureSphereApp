@@ -6,8 +6,9 @@ import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:securesphere/config/api_config.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
+import 'package:decvault/config/api_config.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class QrLoginService extends GetxService {
   AuthService get _authService => Get.find<AuthService>();
@@ -45,7 +46,6 @@ class QrLoginService extends GetxService {
       // Register session with backend
       final registered = await _registerQrSession(sessionId);
       if (!registered) {
-        print('QR_LOGIN: Failed to register session with backend');
         return null;
       }
       
@@ -61,10 +61,8 @@ class QrLoginService extends GetxService {
         _cancelSession();
       });
       
-      print('QR_LOGIN: Generated session: $sessionId');
       return qrData;
     } catch (e) {
-      print('QR_LOGIN: Error generating QR session: $e');
       return null;
     }
   }
@@ -79,38 +77,32 @@ class QrLoginService extends GetxService {
       
       // Validate QR data
       if (sessionId == null || timestamp == null || type != 'qr_login') {
-        print('QR_LOGIN: Invalid QR data format');
         return false;
       }
       
       // Check if QR is not expired (5 minutes)
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - timestamp > 5 * 60 * 1000) {
-        print('QR_LOGIN: QR code expired');
         return false;
       }
       
       // Get user's public key for authentication
       final userId = await _authService.getUserId();
       if (userId == null) {
-        print('QR_LOGIN: User not logged in on mobile');
         return false;
       }
       
       // Try to get seed phrase or derive public key
-      print('QR_LOGIN: Attempting to retrieve authentication keys for user $userId');
       
       // Try getPrivateKey first - it handles fallbacks internally
       final privateKey = await _authService.getPrivateKey();
       if (privateKey == null || privateKey.isEmpty) {
-        print('QR_LOGIN: Cannot retrieve keys - please log in again with your seed phrase');
         return false;
       }
       
       // Get the seed phrase to derive public key (private key exists means seed phrase should too)
       final seedPhrase = await _authService.getStoredSeedPhrase();
       if (seedPhrase == null || seedPhrase.isEmpty) {
-        print('QR_LOGIN: Cannot retrieve seed phrase - please log in again');
         return false;
       }
       
@@ -119,26 +111,24 @@ class QrLoginService extends GetxService {
       final publicKey = keys['publicKey'];
       
       if (publicKey == null || publicKey.isEmpty) {
-        print('QR_LOGIN: Failed to derive public key');
         return false;
       }
       
-      print('QR_LOGIN: Successfully retrieved keys for authentication');
       
       // Authenticate the QR session with mobile device
+      // Include seed phrase so desktop can decrypt backups
       final authenticated = await _authenticateQrSession(
         sessionId,
         userId,
         publicKey,
+        seedPhrase,
       );
       
       // Don't show snackbar here - let the UI handle it
-      print('QR_LOGIN: Authentication ${authenticated ? "successful" : "failed"}');
       
       return authenticated;
     } catch (e) {
-      print('QR_LOGIN: Error validating QR: $e');
-      Get.snackbar('Error', 'Failed to validate QR code: $e');
+      // Don't show snackbar here - let the UI handle error display
       return false;
     }
   }
@@ -159,10 +149,8 @@ class QrLoginService extends GetxService {
         }),
       ).timeout(const Duration(seconds: 10));
       
-      print('QR_LOGIN: Register session response: ${response.statusCode}');
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
-      print('QR_LOGIN: Error registering session: $e');
       return false;
     }
   }
@@ -172,6 +160,7 @@ class QrLoginService extends GetxService {
     String sessionId,
     String userId,
     String publicKey,
+    String seedPhrase,
   ) async {
     try {
       final url = Uri.parse('${ApiConfig.psqlBaseUrl}/qr-auth/authenticate');
@@ -185,14 +174,13 @@ class QrLoginService extends GetxService {
           'session_id': sessionId,
           'user_id': userId,
           'public_key': publicKey,
+          'seed_phrase': seedPhrase, // Include seed phrase for backup decryption
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         }),
       ).timeout(const Duration(seconds: 10));
       
-      print('QR_LOGIN: Authenticate response: ${response.statusCode}');
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
-      print('QR_LOGIN: Error authenticating session: $e');
       return false;
     }
   }
@@ -230,49 +218,72 @@ class QrLoginService extends GetxService {
         final status = data['status'] as String?;
         final userId = data['user_id'] as String?;
         final publicKey = data['public_key'] as String?;
+        final seedPhrase = data['seed_phrase'] as String?;
         
-        if (status == 'authenticated' && userId != null && publicKey != null) {
-          print('QR_LOGIN: Session authenticated! User: $userId');
+        if (status == 'authenticated' && userId != null && publicKey != null && seedPhrase != null) {
           sessionStatus.value = QrSessionStatus.authenticated;
           
-          // Login the desktop user
-          await _loginDesktopUser(userId, publicKey);
+          // Login the desktop user with seed phrase
+          await _loginDesktopUser(userId, publicKey, seedPhrase);
           
           _cancelSession();
+        } else if (status == 'authenticated') {
         }
       }
     } catch (e) {
-      print('QR_LOGIN: Error checking status: $e');
     }
   }
 
   /// Complete desktop login after mobile authentication
-  Future<void> _loginDesktopUser(String userId, String publicKey) async {
+  Future<void> _loginDesktopUser(String userId, String publicKey, String seedPhrase) async {
     try {
       sessionStatus.value = QrSessionStatus.loggingIn;
       
       // Store user credentials using secure storage
-      final storage = const FlutterSecureStorage();
+      final storage = const FlutterSecureStorage(
+        aOptions: AndroidOptions(
+          encryptedSharedPreferences: true,
+        ),
+        iOptions: IOSOptions(
+          accessibility: KeychainAccessibility.first_unlock,
+        ),
+        mOptions: MacOsOptions(
+          accessibility: KeychainAccessibility.first_unlock,
+        ),
+      );
       await storage.write(key: 'user_id', value: userId);
+      await storage.write(key: 'seed_phrase', value: seedPhrase); // Store seed phrase for backup decryption
+      
+      // Also derive and store the private key
+      final keys = _authService.deriveKeysFromSeedPhrase(seedPhrase);
+      final privateKey = keys['privateKey'];
+      if (privateKey != null) {
+        await storage.write(key: 'private_key', value: privateKey);
+      }
       
       // Mark as logged in using shared preferences
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('is_logged_in', true);
       
-      print('QR_LOGIN: Desktop user logged in via QR');
       
       // Navigate to home
       Get.offAllNamed('/home');
-      Get.snackbar(
-        'Success',
-        'Logged in successfully via QR code!',
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
-      );
+      
+      // Show success message safely after navigation
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (Get.context != null) {
+          try {
+            SnackbarUtils.showSuccess(
+              title: 'Success',
+              message: 'Logged in successfully via QR code!',
+            );
+          } catch (e) {
+          }
+        }
+      });
     } catch (e) {
-      print('QR_LOGIN: Error logging in desktop user: $e');
       sessionStatus.value = QrSessionStatus.error;
-      Get.snackbar('Error', 'Failed to complete login: $e');
+      // Don't show snackbar here - let the UI observe sessionStatus and display error
     }
   }
 
@@ -282,7 +293,6 @@ class QrLoginService extends GetxService {
     _currentSessionId = null;
     isSessionActive.value = false;
     sessionStatus.value = QrSessionStatus.idle;
-    print('QR_LOGIN: Session cancelled');
   }
 
   /// Generate unique session ID

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../backup_service.dart';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
 
 class DesktopBackupsScreen extends StatefulWidget {
   const DesktopBackupsScreen({super.key});
@@ -99,13 +100,15 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       setState(() {
         _isLoading = false;
       });
-      Get.snackbar(
-        'Error',
-        'Failed to load backups: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: Failed to load backups: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
@@ -173,21 +176,25 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
         },
       );
 
-      Get.snackbar(
-        'Success',
-        'Backup created and synced successfully',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Success: Backup created and synced successfully'),
+            backgroundColor: const Color(0xFF34A853),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to create backup: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: Failed to create backup: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } finally {
       setState(() {
         _isCreatingBackup = false;
@@ -199,19 +206,22 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
     final backupPath = backup['path'];
     
     if (backupPath == null) {
-      Get.snackbar(
-        'Error',
-        'Restore failed: backup path is null',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Error: Restore failed - backup path is null'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
       return;
     }
 
     // Show confirmation dialog
-    final confirmed = await Get.dialog<bool>(
-      AlertDialog(
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         title: const Text('Restore Backup', style: TextStyle(color: Colors.white)),
         content: Column(
@@ -235,11 +245,11 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Get.back(result: false),
+            onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => Get.back(result: true),
+            onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF34A853),
             ),
@@ -253,31 +263,47 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
 
     try {
       await _backupService.restoreBackup(backupPath);
-      Get.snackbar(
-        'Success',
-        'Backup restored successfully',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF34A853).withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Success: Backup restored successfully'),
+            backgroundColor: const Color(0xFF34A853),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
       _loadBackups();
       
       // Navigate back to home to refresh password list
       Get.offAllNamed('/home');
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Restore failed: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        final errorMessage = e.toString();
+        String userFriendlyMessage = 'Restore failed: $e';
+        
+        // Check if it's a decryption error
+        if (errorMessage.contains('pad block') || 
+            errorMessage.contains('decrypt') || 
+            errorMessage.contains('Invalid argument')) {
+          userFriendlyMessage = 'Cannot restore this backup - it was created with a different account or seed phrase. '
+              'Backups can only be restored on the same account that created them.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $userFriendlyMessage'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 7),
+          ),
+        );
+      }
     }
   }
 
   void _confirmDeleteBackup(Map<String, dynamic> backup) {
-    Get.dialog(
-      AlertDialog(
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         title: const Text('Delete Backup', style: TextStyle(color: Colors.white)),
         content: Column(
@@ -296,12 +322,12 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Get.back(),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () {
-              Get.back();
+              Navigator.of(context).pop();
               _deleteBackup(backup);
             },
             style: ElevatedButton.styleFrom(
@@ -315,14 +341,15 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
   }
 
   Future<void> _deleteBackup(Map<String, dynamic> backup) async {
-    // Note: Implement delete functionality in BackupService if needed
-    Get.snackbar(
-      'Info',
-      'Delete functionality not yet implemented',
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: Colors.orange.withOpacity(0.8),
-      colorText: Colors.white,
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Info: Delete functionality not yet implemented'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   String _formatDate(dynamic dateString) {
@@ -355,11 +382,18 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
+          const CustomTitleBar(),
           Expanded(
-            child: _buildMainContent(),
+            child: Row(
+              children: [
+                _buildSidebar(),
+                Expanded(
+                  child: _buildMainContent(),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -512,7 +546,13 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             child: TextButton.icon(
-              onPressed: () => Get.back(),
+              onPressed: () {
+                try {
+                  Get.back();
+                } catch (e) {
+                  // Already on the correct page or navigation failed
+                }
+              },
               icon: const Icon(Icons.arrow_back, size: 16),
               label: const Text('Back to Home'),
               style: TextButton.styleFrom(

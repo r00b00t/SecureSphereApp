@@ -39,7 +39,12 @@ class LoginScreen extends StatelessWidget {
                 if (isValid) {
                   Get.offAllNamed('/home');
                 } else {
-                  Get.snackbar('Error', 'Invalid seed phrase');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Error: Invalid seed phrase'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
                 }
               },
               child: const Text('Login'),

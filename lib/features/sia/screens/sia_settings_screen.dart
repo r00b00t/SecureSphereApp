@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class SiaSettingsScreen extends StatefulWidget {
   const SiaSettingsScreen({super.key});
@@ -11,7 +12,7 @@ class SiaSettingsScreen extends StatefulWidget {
 }
 
 class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
-  String _selectedOption = 'SecureSphere';
+  String _selectedOption = 'DecVault';
   final TextEditingController _hostController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -35,7 +36,7 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
 
   Future<void> _loadCurrentSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+    final backupOption = prefs.getString('backupOption') ?? 'DecVault';
     
     setState(() {
       _selectedOption = backupOption;
@@ -45,7 +46,7 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
       final siaService = Get.find<SiaService>();
       final config = siaService.currentConfig;
       
-      if (config != null && !config.isSecureSphereManagedNode) {
+      if (config != null && !config.isDecVaultManagedNode) {
         setState(() {
           _hostController.text = config.host;
           _portController.text = config.port;
@@ -69,12 +70,9 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
         if (_hostController.text.trim().isEmpty ||
             _portController.text.trim().isEmpty ||
             _passwordController.text.trim().isEmpty) {
-          Get.snackbar(
-            'Error',
-            'Please fill in all fields for self-hosted configuration',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red[100],
-            colorText: Colors.red[800],
+          SnackbarUtils.showError(
+            title: 'Error',
+            message: 'Please fill in all fields for self-hosted configuration',
           );
           return;
         }
@@ -88,33 +86,24 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
         );
 
         if (!success) {
-          Get.snackbar(
-            'Error',
-            'Failed to save SIA node configuration',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.red[100],
-            colorText: Colors.red[800],
+          SnackbarUtils.showError(
+            title: 'Error',
+            message: 'Failed to save SIA node configuration',
           );
           return;
         }
       }
 
-      Get.snackbar(
-        'Success',
-        'SIA node settings saved successfully',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green[100],
-        colorText: Colors.green[800],
+      SnackbarUtils.showSuccess(
+        title: 'Success',
+        message: 'SIA node settings saved successfully',
       );
 
       Get.back(); // Return to previous screen
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to save settings: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red[100],
-        colorText: Colors.red[800],
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to save settings: $e',
       );
     } finally {
       setState(() {
@@ -127,12 +116,9 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
     if (_selectedOption != 'Self-hosted') return;
 
     if (_hostController.text.trim().isEmpty || _portController.text.trim().isEmpty) {
-      Get.snackbar(
-        'Error',
-        'Please enter host and port to test connection',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red[100],
-        colorText: Colors.red[800],
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Please enter host and port to test connection',
       );
       return;
     }
@@ -146,20 +132,14 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
       // For now, just simulate a test
       await Future.delayed(const Duration(seconds: 2));
       
-      Get.snackbar(
-        'Success',
-        'Connection test successful',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green[100],
-        colorText: Colors.green[800],
+      SnackbarUtils.showSuccess(
+        title: 'Success',
+        message: 'Connection test successful',
       );
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Connection test failed: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red[100],
-        colorText: Colors.red[800],
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Connection test failed: $e',
       );
     } finally {
       setState(() {
@@ -187,16 +167,16 @@ class _SiaSettingsScreenState extends State<SiaSettingsScreen> {
             ),
             const SizedBox(height: 16),
             
-            // SecureSphere Option
+            // DecVault Option
             RadioListTile<String>(
-              title: const Text('SecureSphere Decentralized Server'),
+              title: const Text('DecVault Decentralized Server'),
               subtitle: const Text('Use our managed SIA node (recommended)'),
-              value: 'SecureSphere',
+              value: 'DecVault',
               groupValue: _selectedOption,
               onChanged: (value) {
                 setState(() {
                   _selectedOption = value!;
-                  // Clear self-hosted fields when switching to SecureSphere
+                  // Clear self-hosted fields when switching to DecVault
                   _hostController.clear();
                   _portController.clear();
                   _passwordController.clear();

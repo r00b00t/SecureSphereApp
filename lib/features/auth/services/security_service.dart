@@ -2,13 +2,59 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/security_settings.dart';
 import 'auth_service.dart';
 
 class SecurityService extends GetxService {
-  static const _storage = FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
   static const _pinKey = 'user_pin';
   static const _initialSetupKey = 'initial_setup_complete';
+  
+  // Storage wrapper methods with fallback to SharedPreferences for macOS development
+  Future<void> _secureWrite(String key, String value) async {
+    try {
+      await _storage.write(key: key, value: value);
+    } catch (e) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('secure_$key', value);
+    }
+  }
+
+  Future<String?> _secureRead(String key) async {
+    try {
+      final value = await _storage.read(key: key);
+      if (value != null) {
+        return value;
+      }
+    } catch (e) {
+    }
+    
+    // Fallback to SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('secure_$key');
+  }
+
+  Future<void> _secureDelete(String key) async {
+    try {
+      await _storage.delete(key: key);
+    } catch (e) {
+    }
+    
+    // Also delete from SharedPreferences fallback
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('secure_$key');
+  }
   
   final LocalAuthentication _localAuth = LocalAuthentication();
   
@@ -30,7 +76,11 @@ class SecurityService extends GetxService {
   
   // Grace period after successful unlock to prevent immediate re-locking
   DateTime? _lastUnlockTime;
-  static const Duration _unlockGracePeriod = Duration(seconds: 10);
+  static const Duration _unlockGracePeriod = Duration(seconds: 30); // Increased from 10
+  
+  // Track when app was last paused to detect short pauses (system dialogs, etc)
+  DateTime? _lastPauseTime;
+  static const Duration _shortPauseTolerance = Duration(seconds: 30); // Increased from 5
 
   @override
   Future<void> onInit() async {
@@ -41,7 +91,7 @@ class SecurityService extends GetxService {
   Future<void> _initialize() async {
     
     // Check initial setup status
-    final setupComplete = await _storage.read(key: _initialSetupKey);
+    final setupComplete = await _secureRead(_initialSetupKey);
     _isInitialSetupComplete.value = setupComplete == 'true';
     
     // Load security settings
@@ -106,7 +156,7 @@ class SecurityService extends GetxService {
 
   // PIN Methods
   Future<bool> hasPinSet() async {
-    final pin = await _storage.read(key: _pinKey);
+    final pin = await _secureRead(_pinKey);
     return pin != null && pin.isNotEmpty;
   }
 
@@ -121,7 +171,7 @@ class SecurityService extends GetxService {
         throw Exception('PIN must contain only numbers');
       }
       
-      await _storage.write(key: _pinKey, value: pin);
+      await _secureWrite(_pinKey, pin);
       
       // Update security settings
       final settings = _securitySettings.value.copyWith(hasPinEnabled: true);
@@ -136,7 +186,7 @@ class SecurityService extends GetxService {
 
   Future<bool> verifyPinCode(String pin) async {
     try {
-      final storedPin = await _storage.read(key: _pinKey);
+      final storedPin = await _secureRead(_pinKey);
       return storedPin == pin;
     } catch (e) {
       return false;
@@ -150,7 +200,7 @@ class SecurityService extends GetxService {
         throw Exception('Current PIN is incorrect');
       }
       
-      await _storage.delete(key: _pinKey);
+      await _secureDelete(_pinKey);
       
       // Update security settings
       final settings = _securitySettings.value.copyWith(hasPinEnabled: false);
@@ -194,8 +244,14 @@ class SecurityService extends GetxService {
         throw Exception('Invalid seed phrase');
       }
       
-      // Clear the existing PIN without requiring current PIN
-      await _storage.delete(key: _pinKey);
+      
+      // Clear the existing PIN using the secure delete wrapper
+      // This has fallback logic for macOS/iOS keychain issues
+      try {
+        await _secureDelete(_pinKey);
+      } catch (deleteError) {
+        // Continue anyway - PIN might not have been set
+      }
       
       // Update security settings to disable PIN
       final settings = _securitySettings.value.copyWith(hasPinEnabled: false);
@@ -207,6 +263,20 @@ class SecurityService extends GetxService {
       
       return true;
     } catch (e) {
+      // If it's a PlatformException related to keychain (-34018), provide more context
+      if (e.toString().contains('-34018') || e.toString().contains('security result code')) {
+        
+        // Try to at least update the settings even if secure storage fails
+        try {
+          final settings = _securitySettings.value.copyWith(hasPinEnabled: false);
+          _securitySettings.value = settings;
+          await settings.save();
+          _isAppLocked.value = false;
+          return true;
+        } catch (settingsError) {
+          return false;
+        }
+      }
       return false;
     }
   }
@@ -347,10 +417,13 @@ class SecurityService extends GetxService {
     await _updateLastActiveTime();
     _lastUnlockTime = DateTime.now(); // Reset unlock time to extend grace period
   }
-
-  // Track last pause time to distinguish between actual backgrounding and system dialogs
-  DateTime? _lastPauseTime;
-  static const Duration _shortPauseTolerance = Duration(seconds: 5);
+  
+  // Clear lock state (used during logout)
+  void clearLockState() {
+    _isAppLocked.value = false;
+    _lastUnlockTime = null;
+    _lastPauseTime = null;
+  }
 
   // App lifecycle methods
   Future<void> onAppResumed() async {
@@ -360,29 +433,37 @@ class SecurityService extends GetxService {
       return;
     }
     
+    // Check if app was recently unlocked (grace period)
     if (_lastUnlockTime != null) {
       final timeSinceUnlock = DateTime.now().difference(_lastUnlockTime!);
       if (timeSinceUnlock < _unlockGracePeriod) {
+        // Update last active time to prevent unwanted auto-lock
+        await _updateLastActiveTime();
         return;
       }
     }
     
+    // Check if this was a short pause (likely system dialog or quick app switch)
     if (_lastPauseTime != null) {
       final pauseDuration = DateTime.now().difference(_lastPauseTime!);
       if (pauseDuration < _shortPauseTolerance) {
+        // Update last active time since user is still using the app
+        await _updateLastActiveTime();
         return;
       }
     }
     
     final settings = _securitySettings.value;
     
-    // If any security is enabled and lock on app close is enabled, lock the app
-    if ((settings.hasPinEnabled || settings.biometricEnabled) && settings.lockOnAppClose) {
-      _isAppLocked.value = true;
-    }
-    
-    if (settings.shouldAutoLock()) {
-      _isAppLocked.value = true;
+    // Only lock if security is enabled and enough time has passed
+    if (settings.hasPinEnabled || settings.biometricEnabled) {
+      // Check if should auto-lock due to inactivity (respects auto-lock timeout setting)
+      if (settings.shouldAutoLock()) {
+        _isAppLocked.value = true;
+      } else {
+        // Update last active time since user is returning to app
+        await _updateLastActiveTime();
+      }
     }
   }
 
@@ -403,7 +484,7 @@ class SecurityService extends GetxService {
 
   // Mark initial setup as complete (call this after successful registration)
   Future<void> markInitialSetupComplete() async {
-    await _storage.write(key: _initialSetupKey, value: 'true');
+    await _secureWrite(_initialSetupKey, 'true');
     _isInitialSetupComplete.value = true;
     
     // Now apply security settings if any security is enabled

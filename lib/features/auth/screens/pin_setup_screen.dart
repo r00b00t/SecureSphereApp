@@ -113,15 +113,24 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
       
       if (success) {
         
-        // Show success message immediately
-        Get.snackbar(
-          'Success ',
-          '6-digit PIN has been set successfully',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green.withOpacity(0.9),
-          colorText: Colors.white,
-          duration: const Duration(seconds: 2),
-        );
+        // Show success message safely using ScaffoldMessenger
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              try {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Success! 6-digit PIN has been set successfully'),
+                    backgroundColor: Colors.green.withOpacity(0.9),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } catch (e) {
+              }
+            }
+          });
+        }
         
         
         // Delay navigation to next frame to ensure UI updates complete
@@ -198,8 +207,9 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         return;
       }
 
+      // Check if we can navigate back normally
       if (Navigator.canPop(context)) {
-        Get.back(result: true);
+        Navigator.of(context).pop(true);
         return;
       }
       
@@ -216,7 +226,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     if (widget.onSkip != null) {
       widget.onSkip!();
     } else {
-      Get.back(result: false);
+      Navigator.of(context).pop(false);
     }
   }
 
@@ -224,6 +234,9 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentPin = _isConfirming ? _confirmPin : _firstPin;
+    final screenSize = MediaQuery.of(context).size;
+    final isDesktop = screenSize.width > 600;
+    final isSmallScreen = screenSize.height < 700;
     
     return PopScope(
       canPop: widget.isOptional, // Allow back only if PIN setup is optional
@@ -231,14 +244,17 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         if (didPop) return;
         if (!widget.isOptional) {
           // PIN setup is required, show warning
-          Get.snackbar(
-            'PIN Required',
-            'Please complete PIN setup to continue',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Colors.orange.withOpacity(0.8),
-            colorText: Colors.white,
-            duration: const Duration(seconds: 2),
-          );
+          try {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('PIN Required - Please complete PIN setup to continue'),
+                backgroundColor: Colors.orange.withOpacity(0.8),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          } catch (e) {
+          }
         }
       },
       child: Scaffold(
@@ -248,7 +264,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: _isConfirming ? _resetPin : () => Get.back(),
+          onPressed: _isConfirming ? _resetPin : () => Navigator.of(context).pop(),
         ),
         actions: [
           if (widget.isOptional)
@@ -259,135 +275,201 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              
-              // Security icon
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: theme.primaryColor,
-                  borderRadius: BorderRadius.circular(20),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Center(
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: isDesktop ? 500 : double.infinity,
                 ),
-                child: const Icon(
-                  Icons.security,
-                  size: 40,
-                  color: Colors.white,
-                ),
-              ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      SizedBox(height: isSmallScreen ? 8 : 16),
               
-              const SizedBox(height: 16),
-              
-              // Title
-              Text(
-                widget.title ?? (_isConfirming ? 'Confirm your PIN' : 'Set up your PIN'),
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              
-              const SizedBox(height: 8),
-              
-              // Description
-              Text(
-                _isConfirming 
-                    ? 'Please re-enter your 6-digit PIN to confirm'
-                    : 'Create a 6-digit PIN to secure your app',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.7),
-                ),
-                textAlign: TextAlign.center,
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // PIN dots indicator
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(6, (index) {
-                  final isFilled = index < currentPin.length;
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 6),
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isFilled 
-                          ? theme.primaryColor 
-                          : theme.colorScheme.outline.withOpacity(0.3),
-                      border: Border.all(
-                        color: theme.primaryColor.withOpacity(0.5),
-                        width: 1,
+                      // Security icon
+                      Container(
+                        width: isSmallScreen ? 80 : 100,
+                        height: isSmallScreen ? 80 : 100,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              theme.primaryColor,
+                              theme.colorScheme.secondary,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(isSmallScreen ? 20 : 25),
+                          boxShadow: [
+                            BoxShadow(
+                              color: theme.primaryColor.withOpacity(0.3),
+                              blurRadius: 15,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.security,
+                          size: isSmallScreen ? 40 : 50,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                  );
-                }),
-              ),
+                      
+                      SizedBox(height: isSmallScreen ? 16 : 24),
               
-              const SizedBox(height: 8),
-              
-              // Error message
-              Container(
-                height: 30, // Reduced height
-                alignment: Alignment.center,
-                child: _errorMessage != null
-                    ? Text(
-                        _errorMessage!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.error,
-                          fontSize: 12,
+                      // Title
+                      Text(
+                        widget.title ?? (_isConfirming ? 'Confirm your PIN' : 'Set up your PIN'),
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          fontSize: isSmallScreen ? 22 : 26,
                         ),
                         textAlign: TextAlign.center,
-                      )
-                    : null,
-              ),
+                      ),
+                      
+                      SizedBox(height: isSmallScreen ? 8 : 12),
+                      
+                      // Description
+                      Text(
+                        _isConfirming 
+                            ? 'Please re-enter your 6-digit PIN to confirm'
+                            : 'Create a 6-digit PIN to secure your app',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.onSurface.withOpacity(0.7),
+                          fontSize: isSmallScreen ? 14 : 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      
+                      SizedBox(height: isSmallScreen ? 20 : 32),
               
-              const SizedBox(height: 8),
+                      // PIN dots indicator
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(6, (index) {
+                          final isFilled = index < currentPin.length;
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            margin: EdgeInsets.symmetric(horizontal: isSmallScreen ? 6 : 8),
+                            width: isSmallScreen ? 16 : 20,
+                            height: isSmallScreen ? 16 : 20,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isFilled 
+                                  ? theme.primaryColor 
+                                  : theme.colorScheme.outline.withOpacity(0.2),
+                              border: Border.all(
+                                color: isFilled 
+                                    ? theme.primaryColor 
+                                    : theme.primaryColor.withOpacity(0.4),
+                                width: 2,
+                              ),
+                              boxShadow: isFilled ? [
+                                BoxShadow(
+                                  color: theme.primaryColor.withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ] : [],
+                            ),
+                          );
+                        }),
+                      ),
+                      
+                      SizedBox(height: isSmallScreen ? 12 : 20),
               
-              // PIN keypad with actions
-              Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: _buildKeypad(theme),
-                    ),
-                    // Bottom actions - moved inside Expanded
-                    Container(
-                      padding: const EdgeInsets.only(top: 8, bottom: 8),
-                      child: Column(
+                      // Error message
+                      Container(
+                        height: isSmallScreen ? 35 : 40,
+                        alignment: Alignment.center,
+                        child: _errorMessage != null
+                            ? Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isSmallScreen ? 12 : 16,
+                                  vertical: isSmallScreen ? 6 : 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.error.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: theme.colorScheme.error.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  _errorMessage!,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.error,
+                                    fontSize: isSmallScreen ? 12 : 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              )
+                            : null,
+                      ),
+                      
+                      SizedBox(height: isSmallScreen ? 12 : 20),
+                      
+                      // PIN keypad with actions
+                      _buildKeypad(theme, isSmallScreen, isDesktop),
+                      
+                      SizedBox(height: isSmallScreen ? 12 : 16),
+                      
+                      // Bottom actions
+                      Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // Show confirm button when both PINs are complete and match
                           if (_isConfirming && _confirmPin.length == 6 && _firstPin == _confirmPin)
                             Column(
                               children: [
-                                ElevatedButton(
-                                  onPressed: _isLoading ? null : _verifyPins,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: theme.primaryColor,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                                  ),
-                                  child: _isLoading 
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                SizedBox(
+                                  width: 200,
+                                  height: 56,
+                                  child: ElevatedButton(
+                                    onPressed: _isLoading ? null : _verifyPins,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: theme.primaryColor,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      elevation: 6,
+                                      shadowColor: theme.primaryColor.withOpacity(0.4),
+                                    ),
+                                    child: _isLoading 
+                                        ? const SizedBox(
+                                            width: 24,
+                                            height: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.5,
+                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                            ),
+                                          )
+                                        : const Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(Icons.check_circle, size: 22),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Confirm PIN',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                        )
-                                      : const Text('Confirm PIN'),
+                                  ),
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 12),
                                 TextButton(
                                   onPressed: _resetPin,
-                                  child: const Text('Start over', style: TextStyle(fontSize: 12)),
+                                  child: const Text(
+                                    'Start over',
+                                    style: TextStyle(fontSize: 14),
+                                  ),
                                 ),
                               ],
                             )
@@ -410,64 +492,68 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                           ),
                         ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ), // Close SafeArea
     ), // Close Scaffold
     ); // Close PopScope
   }
 
-  Widget _buildKeypad(ThemeData theme) {
+  Widget _buildKeypad(ThemeData theme, bool isSmallScreen, bool isDesktop) {
+    final buttonSize = isSmallScreen ? 60.0 : (isDesktop ? 80.0 : 70.0);
+    final spacing = isSmallScreen ? 8.0 : 12.0;
+    
     return Container(
-      constraints: const BoxConstraints(maxWidth: 260),
+      constraints: BoxConstraints(maxWidth: isDesktop ? 400 : 320),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.start, // Changed from center
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Row 1: 1, 2, 3
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildKeypadButton('1', theme),
-              _buildKeypadButton('2', theme),
-              _buildKeypadButton('3', theme),
+              _buildKeypadButton('1', theme, buttonSize, isSmallScreen),
+              _buildKeypadButton('2', theme, buttonSize, isSmallScreen),
+              _buildKeypadButton('3', theme, buttonSize, isSmallScreen),
             ],
           ),
-          const SizedBox(height: 8), // Reduced from 12
+          SizedBox(height: spacing),
           
           // Row 2: 4, 5, 6
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildKeypadButton('4', theme),
-              _buildKeypadButton('5', theme),
-              _buildKeypadButton('6', theme),
+              _buildKeypadButton('4', theme, buttonSize, isSmallScreen),
+              _buildKeypadButton('5', theme, buttonSize, isSmallScreen),
+              _buildKeypadButton('6', theme, buttonSize, isSmallScreen),
             ],
           ),
-          const SizedBox(height: 8), // Reduced from 12
+          SizedBox(height: spacing),
           
           // Row 3: 7, 8, 9
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildKeypadButton('7', theme),
-              _buildKeypadButton('8', theme),
-              _buildKeypadButton('9', theme),
+              _buildKeypadButton('7', theme, buttonSize, isSmallScreen),
+              _buildKeypadButton('8', theme, buttonSize, isSmallScreen),
+              _buildKeypadButton('9', theme, buttonSize, isSmallScreen),
             ],
           ),
-          const SizedBox(height: 8), // Reduced from 12
+          SizedBox(height: spacing),
           
           // Row 4: empty, 0, backspace
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              const SizedBox(width: 50, height: 50), // Reduced empty space
-              _buildKeypadButton('0', theme),
-              _buildBackspaceButton(theme),
+              SizedBox(width: buttonSize, height: buttonSize),
+              _buildKeypadButton('0', theme, buttonSize, isSmallScreen),
+              _buildBackspaceButton(theme, buttonSize, isSmallScreen),
             ],
           ),
         ],
@@ -475,24 +561,32 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     );
   }
 
-  Widget _buildKeypadButton(String number, ThemeData theme) {
+  Widget _buildKeypadButton(String number, ThemeData theme, double size, bool isSmallScreen) {
     return GestureDetector(
       onTap: _isLoading ? null : () => _onNumberPressed(number),
-      child: Container(
-        width: 50, // Reduced from 60
-        height: 50, // Reduced from 60
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: theme.colorScheme.surface,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              theme.colorScheme.surface,
+              theme.colorScheme.surface.withOpacity(0.8),
+            ],
+          ),
           border: Border.all(
-            color: theme.colorScheme.outline.withOpacity(0.3),
-            width: 1,
+            color: theme.primaryColor.withOpacity(0.2),
+            width: 2,
           ),
           boxShadow: [
             BoxShadow(
-              color: theme.shadowColor.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+              color: theme.shadowColor.withOpacity(0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -500,8 +594,8 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
           child: Text(
             number,
             style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              fontSize: 20, // Reduced from 24
+              fontWeight: FontWeight.bold,
+              fontSize: isSmallScreen ? 24 : 28,
             ),
           ),
         ),
@@ -509,24 +603,31 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
     );
   }
 
-  Widget _buildBackspaceButton(ThemeData theme) {
+  Widget _buildBackspaceButton(ThemeData theme, double size, bool isSmallScreen) {
     return GestureDetector(
       onTap: _isLoading ? null : _onBackspacePressed,
       child: Container(
-        width: 50, // Reduced from 60
-        height: 50, // Reduced from 60
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: theme.colorScheme.surface,
           border: Border.all(
-            color: theme.colorScheme.outline.withOpacity(0.3),
-            width: 1,
+            color: theme.primaryColor.withOpacity(0.2),
+            width: 2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.shadowColor.withOpacity(0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Icon(
           Icons.backspace_outlined,
-          color: theme.colorScheme.onSurface.withOpacity(0.7),
-          size: 18, // Reduced from 20
+          color: theme.colorScheme.error,
+          size: isSmallScreen ? 24 : 28,
         ),
       ),
     );

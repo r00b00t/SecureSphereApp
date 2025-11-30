@@ -6,12 +6,12 @@ import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
-import 'package:securesphere/features/vault/services/renterd_uploader.dart';
-import 'package:securesphere/features/settings/services/settings_service.dart';
-import 'package:securesphere/features/vault/services/encryption_service.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/models/password_model.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/features/vault/services/renterd_uploader.dart';
+import 'package:decvault/features/settings/services/settings_service.dart';
+import 'package:decvault/features/vault/services/encryption_service.dart';
 
 class BackupService extends GetxService {
   Box? _backupBox;
@@ -62,16 +62,16 @@ class BackupService extends GetxService {
   }
 
   /// Get backup bucket name based on user configuration
-  /// - SecureSphere: user-specific backup bucket (user-backup-USERID)
+  /// - DecVault: user-specific backup bucket (user-backup-USERID)
   /// - Self-hosted: shared 'securesphere-backup' bucket
   Future<String> _getBackupBucketName() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
       
-      if (backupOption == 'SecureSphere') {
-        // Use user ID as backup bucket for SecureSphere (secure isolation)
+      if (backupOption == 'DecVault') {
+        // Use user ID as backup bucket for DecVault (secure isolation)
         final authService = Get.find<AuthService>();
         final userId = await authService.getUserId();
         
@@ -116,7 +116,7 @@ class BackupService extends GetxService {
       };
       await _saveLocalBackup(backupData, customName: customName);
       
-      // Always upload to SIA node (both SecureSphere and Self-hosted use SIA now)
+      // Always upload to SIA node (both DecVault and Self-hosted use SIA now)
       await _uploadToSiaNode(backupData, customName: customName);
       
       
@@ -332,7 +332,7 @@ class BackupService extends GetxService {
       }
       
       
-      // Both SecureSphere and Self-hosted now use SIA bucket approach
+      // Both DecVault and Self-hosted now use SIA bucket approach
       return await _getBackupsFromSiaBucket();
       
     } catch (e) {
@@ -462,6 +462,7 @@ class BackupService extends GetxService {
       }
       
       
+      // Check if this is an encrypted backup by looking for the original filename
       // First get the list of backups to find the actual filename
       final backups = await getBackups();
       String actualFilename = backupKey;
@@ -474,9 +475,10 @@ class BackupService extends GetxService {
         }
       }
       
-      // Both SecureSphere and Self-hosted now use SIA with different buckets
+      // Both DecVault and Self-hosted now use SIA with different buckets
       await _downloadBackupFromSia(actualFilename);
       
+      // Load the downloaded backup data
       final backupData = _lastDownloadedBackup;
       if (backupData == null) {
         throw Exception('[SIA] Backup data is null');
@@ -536,6 +538,7 @@ class BackupService extends GetxService {
       // Download backup file from SIA bucket
       final backupData = await _downloadBackupFromSpecificBucket(filename, siaConfig, bucketName);
       
+      // Store the downloaded backup data
       _lastDownloadedBackup = backupData;
       
       
@@ -569,6 +572,7 @@ class BackupService extends GetxService {
       
       if (response.statusCode == 200) {
         
+        // Check if this is an encrypted backup or legacy plain backup
         final responseBytes = response.bodyBytes;
         
         // Try to decrypt if it looks like an encrypted backup
@@ -595,6 +599,7 @@ class BackupService extends GetxService {
   /// Checks if downloaded data is an encrypted backup
   bool _isEncryptedBackup(Uint8List data) {
     // Encrypted backups have: [IV:16bytes][metadata_length:4bytes][metadata][encrypted_data]
+    // Check if the data is at least long enough to contain IV + length
     return data.length >= 20; // 16 bytes for IV + 4 bytes for metadata length
   }
 

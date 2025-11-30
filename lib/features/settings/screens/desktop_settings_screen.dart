@@ -2,15 +2,21 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:securesphere/config/api_config.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
-import 'package:securesphere/features/auth/services/security_service.dart';
-import 'package:securesphere/features/auth/screens/pin_setup_screen.dart';
+import 'package:decvault/config/api_config.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
+import 'package:decvault/features/auth/screens/pin_setup_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:decvault/features/subscription/services/storage_service.dart';
+import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class DesktopSettingsScreen extends StatefulWidget {
   const DesktopSettingsScreen({super.key});
@@ -20,10 +26,10 @@ class DesktopSettingsScreen extends StatefulWidget {
 }
 
 class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
-  String _selectedCategory = 'security';
+  String _selectedCategory = 'general';
   
   // Backup storage option
-  String _selectedBackupOption = 'SecureSphere';
+  String _selectedBackupOption = 'DecVault';
   
   // Controllers for text fields
   final TextEditingController _siaIpController = TextEditingController();
@@ -45,7 +51,6 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   
   bool _biometricsAvailable = false;
   bool _useBiometrics = false;
-
   bool _siaConnected = false;
   bool _seedPhraseVisible = false;
   
@@ -65,10 +70,18 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
     _checkBiometrics();
     _loadBiometricsSetting();
     _loadBackupOption();
-
     _loadSiaConnectionStatus();
     _loadSiaConfiguration();
     _loadSecuritySettings();
+    _refreshProStatus();
+  }
+  
+  Future<void> _refreshProStatus() async {
+    try {
+      final revenueCatService = Get.find<RevenueCatService>();
+      await revenueCatService.refreshProStatus();
+    } catch (e) {
+    }
   }
 
   @override
@@ -118,14 +131,14 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Get.back(result: false),
+            onPressed: () => Navigator.of(context).pop(false),
             child: const Text(
               'Cancel',
               style: TextStyle(color: Colors.white70),
             ),
           ),
           ElevatedButton(
-            onPressed: () => Get.back(result: true),
+            onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF8E24AA),
               foregroundColor: Colors.white,
@@ -142,12 +155,9 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
         await authService.logoutUser();
         Get.offAllNamed('/auth');
       } catch (e) {
-        Get.snackbar(
-          'Error',
-          'Failed to sign out: $e',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withValues(alpha: 0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'Failed to sign out: $e',
         );
       }
     }
@@ -181,11 +191,9 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   Future<void> _loadBackupOption() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _selectedBackupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      _selectedBackupOption = prefs.getString('backupOption') ?? 'DecVault';
     });
   }
-
-
 
   Future<void> _loadSiaConnectionStatus() async {
     try {
@@ -196,8 +204,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       if (config != null) {
         setState(() {
           _siaConnected = true;
-          if (config.isSecureSphereManagedNode) {
-            _siaStatusMessage = 'Connected to SecureSphere managed node';
+          if (config.isDecVaultManagedNode) {
+            _siaStatusMessage = 'Connected to DecVault managed node';
           } else {
             _siaStatusMessage = 'Connected to self-hosted SIA node (${config.host}:${config.port})';
           }
@@ -220,7 +228,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   Future<void> _loadSiaConfiguration() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
       setState(() {
         _selectedBackupOption = backupOption;
@@ -229,7 +237,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       if (backupOption == 'Self-Hosted SIA Node') {
         await _loadSelfHostedConfig();
       } else {
-        // Clear form for SecureSphere option
+        // Clear form for DecVault option
         setState(() {
           _siaIpController.clear();
           _siaPortController.clear();
@@ -263,6 +271,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
           _siaIpController.text = node['host'] ?? '';
           _siaPortController.text = (node['port'] ?? '').toString();
           
+          // Check if password is stored locally
           _checkStoredPassword();
         });
       } else {
@@ -571,16 +580,16 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                     ),
                     const SizedBox(height: 16),
                     
-                    // SecureSphere Option
+                    // DecVault Option
                     RadioListTile<String>(
-                      title: const Text('SecureSphere Decentralized Server'),
+                      title: const Text('DecVault Decentralized Server'),
                       subtitle: const Text('Use our managed SIA node (recommended)'),
-                      value: 'SecureSphere',
+                      value: 'DecVault',
                       groupValue: _selectedBackupOption,
                       onChanged: (value) async {
                         setState(() {
                           _selectedBackupOption = value!;
-                          // Clear self-hosted fields when switching to SecureSphere
+                          // Clear self-hosted fields when switching to DecVault
                           _siaIpController.clear();
                           _siaPortController.clear();
                           _siaPasswordController.clear();
@@ -725,11 +734,120 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
           ),
           const SizedBox(height: 24),
           
+          // Account Information Card
+          _buildSettingsCard(
+            title: 'Account Information',
+            icon: Icons.account_circle,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: FutureBuilder<String?>(
+                  future: _authService.getUserId(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Row(
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 16),
+                          Text('Loading user information...'),
+                        ],
+                      );
+                    }
+                    
+                    final userId = snapshot.data;
+                    
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.fingerprint, size: 24, color: Color(0xFF1E8E3E)),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'User ID',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Used for subscription and storage tracking',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (userId != null)
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: userId));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: const Row(
+                                        children: [
+                                          Icon(Icons.check_circle, color: Colors.white),
+                                          SizedBox(width: 8),
+                                          Text('User ID copied to clipboard'),
+                                        ],
+                                      ),
+                                      duration: const Duration(seconds: 2),
+                                      backgroundColor: const Color(0xFF1E8E3E),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.copy, size: 18),
+                                label: const Text('Copy'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1E8E3E),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                          ),
+                          child: SelectableText(
+                            userId ?? 'Not available',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
           _buildSettingsCard(
             title: 'Application',
             icon: Icons.settings,
             children: [
-
               ListTile(
                 title: const Text('Clear Cache'),
                 subtitle: const Text('Clear application cache'),
@@ -739,6 +857,135 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                 },
               ),
             ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Storage Usage Card
+          GetX<StorageService>(
+            builder: (storageService) {
+              return _buildSettingsCard(
+                title: 'Storage Usage',
+                icon: Icons.storage,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Storage usage text
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  storageService.getStorageUsageText(),
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${storageService.getPercentageText()} used',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[400],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            GetX<RevenueCatService>(
+                              builder: (revenueCatService) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: revenueCatService.isPro.value 
+                                        ? const Color(0xFF1E8E3E) 
+                                        : Colors.grey.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    revenueCatService.isPro.value ? 'PRO PLAN' : 'FREE PLAN',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Progress bar
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            value: storageService.percentageUsed.value / 100,
+                            backgroundColor: Colors.grey.withOpacity(0.2),
+                            color: storageService.getStorageStatusColor(),
+                            minHeight: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Storage tier info and upgrade button
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Storage Plan',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[400],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  storageService.getStorageTierName(),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            GetX<RevenueCatService>(
+                              builder: (revenueCatService) {
+                                if (!revenueCatService.isPro.value) {
+                                  return ElevatedButton.icon(
+                                    onPressed: () {
+                                      revenueCatService.presentPaywall();
+                                    },
+                                    icon: const Icon(Icons.upgrade, size: 18),
+                                    label: const Text('Upgrade to Pro'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF1E8E3E),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -752,7 +999,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'About SecureSphere',
+            'About DecVault',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -773,7 +1020,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
               const Divider(),
               const ListTile(
                 title: Text('Developer'),
-                subtitle: Text('SecureSphere Team'),
+                subtitle: Text('DecVault Team'),
                 trailing: Icon(Icons.person),
               ),
               const Divider(),
@@ -781,9 +1028,109 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                 title: const Text('Privacy Policy'),
                 subtitle: const Text('View our privacy policy'),
                 trailing: const Icon(Icons.open_in_new),
-                onTap: () {
-                  // Open privacy policy
+                onTap: () async {
+                  final url = Uri.parse('https://decvault.com/privacy-policy');
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url, mode: LaunchMode.externalApplication);
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not open privacy policy'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
                 },
+              ),
+              const Divider(),
+              ListTile(
+                title: const Text('Terms of Service'),
+                subtitle: const Text('View our terms of service'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  final url = Uri.parse('https://decvault.com/terms');
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url, mode: LaunchMode.externalApplication);
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not open terms of service'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Delete Account Card (at the end)
+          _buildSettingsCard(
+            title: 'Delete Account',
+            icon: Icons.delete_forever,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.warning, color: Colors.red, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                'Danger Zone',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Permanently delete your account and all associated data. This action cannot be undone.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _showDeleteAccountDialog(),
+                        icon: const Icon(Icons.delete_forever, size: 18),
+                        label: const Text('Delete Account'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -836,21 +1183,25 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       // Refresh connection status
       await _loadSiaConnectionStatus();
       
-             Get.snackbar(
-         'Backup Option Updated',
-         'Storage provider changed to $option',
-         snackPosition: SnackPosition.BOTTOM,
-         backgroundColor: Colors.green.withValues(alpha: 0.8),
-         colorText: Colors.white,
-       );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Backup Option Updated - Storage provider changed to $option'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
-             Get.snackbar(
-         'Error',
-         'Failed to save backup option: $e',
-         snackPosition: SnackPosition.BOTTOM,
-         backgroundColor: Colors.red.withValues(alpha: 0.8),
-         colorText: Colors.white,
-       );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: Failed to save backup option: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
@@ -906,6 +1257,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
         if (response.statusCode == 200) {
           try {
             final responseData = jsonDecode(response.body);
+            // Check if response contains expected worker state fields
             if (responseData is Map<String, dynamic> && 
                 responseData.containsKey('id') && 
                 responseData.containsKey('version')) {
@@ -918,13 +1270,10 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setString('backupOption', 'Self-Hosted SIA Node');
               
-                             Get.snackbar(
-                 'Success', 
-                 'SIA node connected and configured successfully',
-                 snackPosition: SnackPosition.BOTTOM,
-                 backgroundColor: Colors.green.withValues(alpha: 0.8),
-                 colorText: Colors.white,
-               );
+              SnackbarUtils.showSuccess(
+                title: 'Success', 
+                message: 'SIA node connected and configured successfully',
+              );
             } else {
               setState(() {
                 _siaStatusMessage = 'Invalid response from SIA worker. Please check your connection.';
@@ -993,20 +1342,14 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
         _siaStatusMessage = 'Disconnected from SIA';
       });
       
-      Get.snackbar(
-        'SIA Disconnected',
-        'Successfully disconnected from Self-Hosted SIA',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showWarning(
+        title: 'SIA Disconnected',
+        message: 'Successfully disconnected from Self-Hosted SIA',
       );
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to disconnect from SIA: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to disconnect from SIA: $e',
       );
     }
   }
@@ -1016,12 +1359,9 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       final seedPhrase = await _authService.getStoredSeedPhrase();
       
       if (seedPhrase == null || seedPhrase.isEmpty) {
-        Get.snackbar(
-          'Error', 
-          'No recovery phrase found',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withValues(alpha: 0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showError(
+          title: 'Error', 
+          message: 'No recovery phrase found',
         );
         return;
       }
@@ -1081,7 +1421,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                             SizedBox(height: 8),
                             Text(
                               '• Never share your recovery phrase with anyone\n'
-                              '• SecureSphere will never ask for your phrase\n'
+                              '• DecVault will never ask for your phrase\n'
                               '• Store it safely offline in multiple locations\n'
                               '• Anyone with this phrase can access your account',
                               style: TextStyle(fontSize: 13),
@@ -1178,12 +1518,9 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                                     child: ElevatedButton.icon(
                                       onPressed: () {
                                         // Copy to clipboard functionality could be added here
-                                        Get.snackbar(
-                                          'Info',
-                                          'For security, copy manually by selecting the text',
-                                          snackPosition: SnackPosition.BOTTOM,
-                                          backgroundColor: Colors.blue.withValues(alpha: 0.8),
-                                          colorText: Colors.white,
+                                        SnackbarUtils.showInfo(
+                                          title: 'Info',
+                                          message: 'For security, copy manually by selecting the text',
                                         );
                                       },
                                       icon: const Icon(Icons.copy),
@@ -1211,7 +1548,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                     setState(() {
                       _seedPhraseVisible = false; // Reset state when closing
                     });
-                    Get.back();
+                    Navigator.of(context).pop();
                   },
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1224,24 +1561,146 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
         ),
       );
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to load recovery phrase: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to load recovery phrase: $e',
       );
+    }
+  }
+  
+  Future<void> _showDeleteAccountDialog() async {
+    // Show confirmation dialog
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Delete Account',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you absolutely sure you want to delete your account?',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'This action will permanently:',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              '• Delete your account from our servers',
+              style: TextStyle(color: Colors.white70),
+            ),
+            Text(
+              '• Remove all your backups and data',
+              style: TextStyle(color: Colors.white70),
+            ),
+            Text(
+              '• Clear all local app data',
+              style: TextStyle(color: Colors.white70),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'This action cannot be undone. Make sure you have backed up your recovery phrase if you want to recover your data later.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.red,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete Account'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Show loading indicator
+      Get.dialog(
+        const Center(
+          child: CircularProgressIndicator(),
+        ),
+        barrierDismissible: false,
+      );
+      
+      try {
+        final success = await _authService.deleteAccount();
+        
+        Get.back(); // Close loading dialog
+        
+        if (success) {
+          SnackbarUtils.showSuccess(
+            title: 'Account Deleted',
+            message: 'Your account has been permanently deleted',
+          );
+        } else {
+          SnackbarUtils.showError(
+            title: 'Error',
+            message: 'Failed to delete account. Please try again.',
+          );
+        }
+      } catch (e) {
+        Get.back(); // Close loading dialog
+        
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'Failed to delete account: $e',
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
+          const CustomTitleBar(),
           Expanded(
-            child: _buildMainContent(),
+            child: Row(
+              children: [
+                _buildSidebar(),
+                Expanded(
+                  child: _buildMainContent(),
+                ),
+              ],
+            ),
           ),
         ],
       ),

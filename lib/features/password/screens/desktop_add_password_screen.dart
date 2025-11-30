@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
-import 'package:securesphere/features/password/repositories/password_repository.dart';
+import 'package:decvault/features/password/models/password_model.dart';
+import 'package:decvault/features/password/repositories/password_repository.dart';
 import 'dart:math';
+import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:decvault/config/api_config.dart';
 
 class DesktopAddPasswordScreen extends StatefulWidget {
   final PasswordModel? password; // For editing existing passwords
@@ -132,7 +136,15 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
     if (_includeSymbols) charset += '!@#\$%^&*()_+-=[]{}|;:,.<>?';
 
     if (charset.isEmpty) {
-      Get.snackbar('Error', 'Please select at least one character type');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error: Please select at least one character type'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
       return;
     }
 
@@ -159,6 +171,104 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
     });
 
     try {
+      final passwordText = _passwordController.text;
+      
+      // Check password breach status before saving (similar to mobile version)
+      bool breached = false;
+      int breachCount = 0;
+      bool breachCheckFailed = false;
+      
+      try {
+        // Check password using the breach API
+        final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordText)}');
+        final response = await http.get(url).timeout(const Duration(seconds: 10));
+        
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          breachCount = data['count'] ?? 0;
+          breached = breachCount > 0;
+        }
+      } catch (e) {
+        breachCheckFailed = true;
+        // Continue with saving even if breach check fails
+      }
+      
+      // Show warnings if needed
+      if (breached) {
+        final result = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: const Row(
+              children: [
+                Icon(Icons.warning, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Security Warning', style: TextStyle(color: Colors.white)),
+              ],
+            ),
+            content: Text(
+              'This password has appeared in known data breaches (Count: $breachCount).\n\nIt is not safe to use compromised passwords as they can be easily guessed by attackers.\n\nDo you still want to save this password?',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Change Password'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                child: const Text('Save Anyway'),
+              ),
+            ],
+          ),
+        );
+        
+        if (result != true) {
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
+      } else if (breachCheckFailed) {
+        final result = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: const Row(
+              children: [
+                Icon(Icons.info, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Notice', style: TextStyle(color: Colors.white)),
+              ],
+            ),
+            content: const Text(
+              'Unable to check if this password has been compromised due to network issues.\n\nThe password will be saved, but we recommend checking your internet connection and updating the password later if needed.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Save Password'),
+              ),
+            ],
+          ),
+        );
+        
+        if (result != true) {
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+      
       if (_isEditing) {
         // Update existing password
         final updatedPassword = PasswordModel(
@@ -173,7 +283,15 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
         );
         
         await _passwordRepo.updatePassword(updatedPassword);
-        Get.snackbar('Success', 'Password updated successfully');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Success: Password updated successfully'),
+              backgroundColor: Color(0xFF34A853),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       } else {
         // Create new password
         final now = DateTime.now();
@@ -189,28 +307,53 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
         );
         
         await _passwordRepo.addPassword(newPassword);
-        Get.snackbar('Success', 'Password saved successfully');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Success: Password saved successfully'),
+              backgroundColor: Color(0xFF34A853),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       }
       
       // Navigate back to home and refresh the password list
       Get.offAllNamed('/home');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to save password: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: Failed to save password: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          _buildSidebar(),
+          const CustomTitleBar(),
           Expanded(
-            child: _buildMainContent(),
+            child: Row(
+              children: [
+                _buildSidebar(),
+                Expanded(
+                  child: _buildMainContent(),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -654,12 +797,14 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
                   onPressed: () {
                     if (_passwordController.text.isNotEmpty) {
                       Clipboard.setData(ClipboardData(text: _passwordController.text));
-                      Get.snackbar(
-                        'Copied',
-                        'Password copied to clipboard',
-                        snackPosition: SnackPosition.BOTTOM,
-                        duration: const Duration(seconds: 2),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('📋 Copied: Password copied to clipboard'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      }
                     }
                   },
                   icon: const Icon(Icons.copy),

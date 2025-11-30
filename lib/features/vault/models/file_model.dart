@@ -35,7 +35,7 @@ class FileModel extends HiveObject {
   bool isEncrypted;
 
   @HiveField(10)
-  String? siaFilename; // Unique filename used in SIA storage
+  String? siaFilename;
 
   FileModel({
     required this.id,

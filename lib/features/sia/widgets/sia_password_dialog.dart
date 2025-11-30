@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class SiaPasswordDialog extends StatefulWidget {
   final String host;
@@ -35,12 +36,9 @@ class _SiaPasswordDialogState extends State<SiaPasswordDialog> {
   Future<void> _savePassword() async {
     
     if (_passwordController.text.trim().isEmpty) {
-      Get.snackbar(
-        'Error',
-        'Please enter your SIA node password',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red[100],
-        colorText: Colors.red[800],
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Please enter your SIA node password',
       );
       return;
     }
@@ -55,20 +53,14 @@ class _SiaPasswordDialogState extends State<SiaPasswordDialog> {
       
       Get.back(); // Close dialog
       
-      Get.snackbar(
-        'Success',
-        'SIA node password saved successfully',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green[100],
-        colorText: Colors.green[800],
+      SnackbarUtils.showSuccess(
+        title: 'Success',
+        message: 'SIA node password saved successfully',
       );
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to save password: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red[100],
-        colorText: Colors.red[800],
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to save password: $e',
       );
     } finally {
       setState(() {

@@ -2,13 +2,92 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:securesphere/features/password/models/password_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:decvault/features/password/models/password_model.dart';
 
 class PasswordRepository {
   late Box<PasswordModel> _passwordBox;
-  final _secureStorage = const FlutterSecureStorage();
+  final _secureStorage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
   static const _secureStoragePrefix = 'password_';
   final String _userId;
+
+  // Secure storage with fallback to SharedPreferences on macOS
+  Future<void> _secureWrite(String key, String value) async {
+    try {
+      await _secureStorage.write(key: key, value: value);
+    } catch (e) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fallback_$key', value);
+    }
+  }
+
+  Future<String?> _secureRead(String key) async {
+    try {
+      final value = await _secureStorage.read(key: key);
+      if (value != null) return value;
+    } catch (e) {
+    }
+    
+    // Try fallback
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('fallback_$key');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> _secureDelete(String key) async {
+    try {
+      await _secureStorage.delete(key: key);
+    } catch (e) {
+    }
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('fallback_$key');
+    } catch (e) {
+    }
+  }
+
+  Future<Map<String, String>> _secureReadAll() async {
+    Map<String, String> allData = {};
+    
+    try {
+      allData = await _secureStorage.readAll();
+    } catch (e) {
+    }
+    
+    // Also get fallback data
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+      for (final key in keys) {
+        if (key.startsWith('fallback_')) {
+          final actualKey = key.substring(9); // Remove 'fallback_' prefix
+          if (!allData.containsKey(actualKey)) {
+            final value = prefs.getString(key);
+            if (value != null) {
+              allData[actualKey] = value;
+            }
+          }
+        }
+      }
+    } catch (e) {
+    }
+    
+    return allData;
+  }
 
   
   PasswordRepository(this._userId);
@@ -18,7 +97,7 @@ class PasswordRepository {
   }
   
   Future<void> addPassword(PasswordModel password) async {
-    await _secureStorage.write(key: '${_userId}_${_secureStoragePrefix}${password.id}', value: password.encryptedPassword);
+    await _secureWrite('${_userId}_${_secureStoragePrefix}${password.id}', password.encryptedPassword);
     
     final passwordModel = PasswordModel(
       id: password.id,
@@ -39,11 +118,11 @@ class PasswordRepository {
       await _passwordBox.clear();
       
 
-      final allKeys = await _secureStorage.readAll();
+      final allKeys = await _secureReadAll();
       final passwordKeys = allKeys.keys.where((key) => key.startsWith('${_userId}_${_secureStoragePrefix}'));
       
       for (final key in passwordKeys) {
-        await _secureStorage.delete(key: key);
+        await _secureDelete(key);
       }
       
 
@@ -60,7 +139,7 @@ class PasswordRepository {
       for (var p in passwords) {
         try {
 
-          final actualPassword = await _secureStorage.read(key: '${_userId}_${_secureStoragePrefix}${p.id}');
+          final actualPassword = await _secureRead('${_userId}_${_secureStoragePrefix}${p.id}');
           
           result.add(PasswordModel(
             id: p.id,
@@ -99,7 +178,7 @@ class PasswordRepository {
     await _passwordBox.delete(id);
     
 
-    await _secureStorage.delete(key: '${_userId}_${_secureStoragePrefix}$id');
+    await _secureDelete('${_userId}_${_secureStoragePrefix}$id');
   }
 
   Future<void> restorePasswords(List<dynamic> passwordMaps) async {
@@ -115,7 +194,7 @@ class PasswordRepository {
       final actualPassword = map['encryptedPassword'];
   
 
-      await _secureStorage.write(key: '${_userId}_${_secureStoragePrefix}$id', value: actualPassword);
+      await _secureWrite('${_userId}_${_secureStoragePrefix}$id', actualPassword);
   
 
       final password = PasswordModel(
@@ -140,7 +219,7 @@ class PasswordRepository {
 
       String? actualPassword;
       try {
-        actualPassword = await _secureStorage.read(key: '${_userId}_${_secureStoragePrefix}$id');
+        actualPassword = await _secureRead('${_userId}_${_secureStoragePrefix}$id');
       } catch (e) {
 
         actualPassword = null;
@@ -163,7 +242,7 @@ class PasswordRepository {
   
   Future<void> updatePassword(PasswordModel password) async {
 
-    await _secureStorage.write(key: '${_userId}_${_secureStoragePrefix}${password.id}', value: password.encryptedPassword);
+    await _secureWrite('${_userId}_${_secureStoragePrefix}${password.id}', password.encryptedPassword);
     
 
     final updatedPassword = PasswordModel(
@@ -186,7 +265,7 @@ class PasswordRepository {
   Future<void> addPasswords(List<PasswordModel> passwords) async {
     for (final password in passwords) {
 
-      await _secureStorage.write(key: '${_userId}_${_secureStoragePrefix}${password.id}', value: password.encryptedPassword);
+      await _secureWrite('${_userId}_${_secureStoragePrefix}${password.id}', password.encryptedPassword);
 
       final passwordMeta = PasswordModel(
         id: password.id,

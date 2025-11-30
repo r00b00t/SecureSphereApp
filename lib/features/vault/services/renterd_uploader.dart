@@ -22,16 +22,16 @@ class RenterdUploader {
   RenterdUploader(this._settingsService, this._encryptionService);
 
   /// Get bucket name based on user configuration
-  /// - SecureSphere: user-specific bucket (user-vault-USERID) - S3 compliant naming
+  /// - DecVault: user-specific bucket (user-vault-USERID) - S3 compliant naming
   /// - Self-hosted: shared 'vault' bucket
   Future<String> _getBucketName() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
       
-      if (backupOption == 'SecureSphere') {
-        // Use user ID as bucket for SecureSphere (secure isolation)
+      if (backupOption == 'DecVault') {
+        // Use user ID as bucket for DecVault (secure isolation)
         final authService = Get.find<AuthService>();
         final userId = await authService.getUserId();
         
@@ -79,10 +79,8 @@ class RenterdUploader {
         throw RenterdUploadException('SIA operations are not supported on web due to CORS restrictions. Please use the mobile or desktop app.');
       }
       
-      // Validate file before processing
       await _validateFileForUpload(file, filename);
       
-      // Validate encryption keys before upload
       final hasKeys = await _encryptionService.validateEncryptionKeys();
       if (!hasKeys) {
         throw RenterdUploadException('Encryption keys not available. User must be authenticated.');
@@ -96,6 +94,7 @@ class RenterdUploader {
       
       await testConnection();
       
+      // Get the bucket name and ensure it exists
       final bucketName = await _getBucketName();
       await _ensureBucketExists(siaConfig, bucketName);
       
@@ -146,6 +145,7 @@ class RenterdUploader {
     final tempDir = Directory.systemTemp;
     final encryptedFile = File('${tempDir.path}/encrypted_${DateTime.now().millisecondsSinceEpoch}_$filename');
     
+    // Create a combined format: IV + encrypted bytes
     final combinedBytes = <int>[];
     combinedBytes.addAll(encryptedFileData.iv);
     combinedBytes.addAll(encryptedFileData.encryptedBytes);
@@ -242,7 +242,6 @@ class RenterdUploader {
         throw RenterdUploadException('SIA operations are not supported on web due to CORS restrictions. Please use the mobile or desktop app.');
       }
       
-      // Validate encryption keys before download
       final hasKeys = await _encryptionService.validateEncryptionKeys();
       if (!hasKeys) {
         throw RenterdUploadException('Encryption keys not available. User must be authenticated.');
@@ -425,10 +424,12 @@ class RenterdUploader {
       final combinedBytes = await encryptedFile.readAsBytes();
       
       
+      // Check if this looks like an encrypted file by examining the first 16 bytes (IV)
       // If the file is encrypted, the first 16 bytes should be a random IV
       bool looksEncrypted = false;
       if (combinedBytes.length >= 16) {
         final possibleIV = combinedBytes.sublist(0, 16);
+        // Check if it's not all zeros and has some randomness
         final nonZeroBytes = possibleIV.where((b) => b != 0).length;
         looksEncrypted = nonZeroBytes > 8; // At least half the bytes are non-zero
       }
@@ -645,14 +646,12 @@ class RenterdUploader {
     }
   }
 
-  /// Validates file before upload to ensure it meets requirements
   Future<void> _validateFileForUpload(File file, String filename) async {
     try {
       if (!await file.exists()) {
         throw RenterdUploadException('File does not exist: ${file.path}');
       }
       
-      // Check file size
       final fileSize = await file.length();
       if (fileSize == 0) {
         throw RenterdUploadException('Cannot upload empty file: $filename');
@@ -664,12 +663,10 @@ class RenterdUploader {
         throw RenterdUploadException('File is not readable: $filename');
       }
       
-      // Validate filename
       if (filename.trim().isEmpty) {
         throw RenterdUploadException('Filename cannot be empty');
       }
       
-      // Check for invalid characters in filename
       const invalidChars = ['<', '>', ':', '"', '|', '?', '*'];
       for (final char in invalidChars) {
         if (filename.contains(char)) {
@@ -683,9 +680,7 @@ class RenterdUploader {
   }
 
 
-  /// Extracts original file size from SIA filename convention
   int? _extractOriginalSizeFromFilename(String filename) {
-    // Look for pattern: filename.ext.orig123456
     final regex = RegExp(r'\.orig(\d+)$');
     final match = regex.firstMatch(filename);
     if (match != null) {
@@ -694,14 +689,10 @@ class RenterdUploader {
     return null;
   }
 
-  /// Estimates encryption overhead for progress calculation
   int _estimateEncryptedSize(int originalSize) {
-    // AES block size is 16 bytes, padding can add up to 15 bytes
-    // Base64 encoding increases size by ~33%
-    // Add IV (16 bytes) and some overhead
     final paddedSize = ((originalSize + 15) ~/ 16) * 16;
     final base64Size = ((paddedSize * 4 + 2) ~/ 3);
-    return base64Size + 16 + 64; // Add IV and some overhead
+    return base64Size + 16 + 64;
   }
 
   /// Ensures the bucket exists in SIA using the correct API

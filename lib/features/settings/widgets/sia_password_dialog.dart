@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class SiaPasswordDialog extends StatefulWidget {
   final String host;
@@ -18,7 +19,17 @@ class SiaPasswordDialog extends StatefulWidget {
 
 class _SiaPasswordDialogState extends State<SiaPasswordDialog> {
   final TextEditingController _passwordController = TextEditingController();
-  static const _storage = FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
   static const _siaPasswordKey = 'sia_password';
   bool _obscurePassword = true;
   bool _isLoading = false;
@@ -33,7 +44,10 @@ class _SiaPasswordDialogState extends State<SiaPasswordDialog> {
     final password = _passwordController.text.trim();
     
     if (password.isEmpty) {
-      Get.snackbar('Error', 'Please enter your SIA node password');
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Please enter your SIA node password',
+      );
       return;
     }
 
@@ -43,9 +57,15 @@ class _SiaPasswordDialogState extends State<SiaPasswordDialog> {
       // Save password locally
       await _storage.write(key: _siaPasswordKey, value: password);
       Get.back(result: true);
-      Get.snackbar('Success', 'SIA node password saved successfully');
+      SnackbarUtils.showSuccess(
+        title: 'Success',
+        message: 'SIA node password saved successfully',
+      );
     } catch (e) {
-      Get.snackbar('Error', 'Failed to save password: $e');
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to save password: $e',
+      );
     } finally {
       setState(() => _isLoading = false);
     }

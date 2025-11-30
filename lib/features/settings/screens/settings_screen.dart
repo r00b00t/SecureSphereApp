@@ -2,18 +2,23 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:securesphere/common/widgets/app_drawer.dart';
-import 'package:securesphere/config/api_config.dart';
-import 'package:securesphere/features/auth/services/auth_service.dart';
-import 'package:securesphere/features/sia/services/sia_service.dart';
-import 'package:securesphere/features/auth/services/security_service.dart';
-import 'package:securesphere/features/auth/services/qr_login_service.dart';
-import 'package:securesphere/features/auth/screens/pin_setup_screen.dart';
-import 'package:securesphere/features/auth/screens/qr_scanner_screen.dart';
+import 'package:decvault/common/widgets/app_drawer.dart';
+import 'package:decvault/config/api_config.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/features/sia/services/sia_service.dart';
+import 'package:decvault/features/auth/services/security_service.dart';
+import 'package:decvault/features/auth/services/qr_login_service.dart';
+import 'package:decvault/features/auth/screens/pin_setup_screen.dart';
+import 'package:decvault/features/auth/screens/qr_scanner_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:decvault/features/subscription/services/storage_service.dart';
+import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -25,10 +30,10 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   // Backup storage options
   final List<String> _backupOptions = [
-    'SecureSphere',
+    'DecVault',
     'Self-Hosted SIA Node'
   ];
-  String _selectedBackupOption = 'SecureSphere';
+  String _selectedBackupOption = 'DecVault';
   // Controllers for text fields
   final TextEditingController _siaIpController = TextEditingController();
   final TextEditingController _siaPortController = TextEditingController();
@@ -58,7 +63,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       return Get.find<SecurityService>();
     } catch (e) {
-      print('SETTINGS: SecurityService not available: $e');
       return null;
     }
   }
@@ -67,11 +71,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return Get.find<QrLoginService>();
     } catch (e) {
       // QR service not initialized yet - this should not happen if main.dart is working correctly
-      print('SETTINGS: QrLoginService not found, this indicates an initialization issue');
       return null;
     }
   }
-  static const _storage = FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+  );
   static const _siaPasswordKey = 'sia_password';
 
   @override
@@ -83,11 +96,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSiaConnectionStatus();
     _loadSiaConfiguration();
     _loadSecuritySettings();
+    _refreshProStatus();
     
     // Load SIA configuration after service initialization (without overriding user choice)
     Future.delayed(const Duration(milliseconds: 1000), () {
       _loadSiaConfiguration();
-      print('SETTINGS: Loaded SIA configuration after service initialization');
     });
   }
 
@@ -98,12 +111,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _biometricsAvailable = canCheck && isDeviceSupported;
       });
-      print('SETTINGS: Biometrics available: $_biometricsAvailable');
     } catch (e) {
-      print('SETTINGS: Error checking biometrics: $e');
       setState(() {
         _biometricsAvailable = false;
       });
+    }
+  }
+  
+  Future<void> _refreshProStatus() async {
+    try {
+      final revenueCatService = Get.find<RevenueCatService>();
+      await revenueCatService.refreshProStatus();
+    } catch (e) {
     }
   }
 
@@ -134,7 +153,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {
-      print('Error loading security settings: $e');
     }
   }
   
@@ -156,33 +174,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _siaPortController.text = config['port'] ?? '';
           _siaPasswordController.text = ''; // Never pre-fill password in settings
           _siaStatusMessage = 'Connected to Self-Hosted SIA';
-          print('SETTINGS: Loaded legacy SIA config but cleared password field');
         } catch (e) {
-          print('Error loading SIA config: $e');
         }
       }
     } catch (e) {
-      print('Error loading SIA connection status: $e');
     }
   }
   
   Future<void> _loadSiaConfiguration() async {
     try {
-      print('SETTINGS: Loading SIA configuration...');
       
       // First, force SIA service to reload from backend
       try {
         final siaService = Get.find<SiaService>();
         await siaService.loadSiaConfiguration();
-        print('SETTINGS: SIA service configuration reloaded');
       } catch (e) {
-        print('SETTINGS: Could not reload SIA service config: $e');
       }
       
       // Load saved backup option (might have been updated by SIA service)
       final prefs = await SharedPreferences.getInstance();
-      final savedOption = prefs.getString('backupOption') ?? 'SecureSphere';
-      print('SETTINGS: Current backup option: $savedOption');
+      final savedOption = prefs.getString('backupOption') ?? 'DecVault';
       
       setState(() {
         _selectedBackupOption = savedOption;
@@ -193,7 +204,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await _loadSelfHostedConfig();
       }
     } catch (e) {
-      print('SETTINGS: Error loading SIA configuration: $e');
     }
   }
   
@@ -234,7 +244,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {
-      print('Error loading self-hosted config: $e');
     }
   }
   
@@ -255,7 +264,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {
-      print('Error checking stored password: $e');
     }
   }
   
@@ -270,7 +278,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Clear manual connection flag and local config
       await prefs.setBool('sia_manually_connected', false);
       await prefs.remove('local_sia_config'); // Remove local SIA config
-      print('[DEBUG] Cleared manual connection flag and local config on disconnect');
       
       // Clear form fields
       _siaIpController.clear();
@@ -281,9 +288,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       try {
         final siaService = Get.find<SiaService>();
         await siaService.clearStoredPassword();
-        print('SIA stored password cleared');
       } catch (e) {
-        print('Error clearing SIA stored password: $e');
       }
       
       setState(() {
@@ -292,20 +297,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _siaPutCommand = null;
       });
       
-      Get.snackbar(
-        'SIA Disconnected',
-        'Successfully disconnected from Self-Hosted SIA',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showWarning(
+        title: 'SIA Disconnected',
+        message: 'Successfully disconnected from Self-Hosted SIA',
       );
     } catch (e) {
-      Get.snackbar(
-        'Error',
-        'Failed to disconnect from SIA: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withValues(alpha: 0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to disconnect from SIA: $e',
       );
     }
   }
@@ -313,17 +312,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _changePin() async {
     final securityService = _securityService;
     if (securityService == null) {
-      Get.snackbar('Error', 'Security service not available');
+      SnackbarUtils.showError(title: 'Error', message: 'Security service not available');
       return;
     }
     
     if (_newPinController.text != _confirmPinController.text) {
-      Get.snackbar('Error', 'New PIN codes do not match');
+      SnackbarUtils.showError(title: 'Error', message: 'New PIN codes do not match');
       return;
     }
     
     if (_newPinController.text.isEmpty || _newPinController.text.length != 6) {
-      Get.snackbar('Error', 'PIN must be exactly 6 digits');
+      SnackbarUtils.showError(title: 'Error', message: 'PIN must be exactly 6 digits');
       return;
     }
     
@@ -334,15 +333,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       
       if (success) {
-        Get.snackbar('Success', 'PIN changed successfully');
+        SnackbarUtils.showSuccess(title: 'Success', message: 'PIN changed successfully');
         _currentPinController.clear();
         _newPinController.clear();
         _confirmPinController.clear();
       } else {
-        Get.snackbar('Error', 'Failed to change PIN. Please check your current PIN.');
+        SnackbarUtils.showError(title: 'Error', message: 'Failed to change PIN. Please check your current PIN.');
       }
     } catch (e) {
-      Get.snackbar('Error', 'Error changing PIN: $e');
+      SnackbarUtils.showError(title: 'Error', message: 'Error changing PIN: $e');
     }
   }
 
@@ -361,7 +360,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _removePin() async {
     final securityService = _securityService;
     if (securityService == null) {
-      Get.snackbar('Error', 'Security service not available');
+      SnackbarUtils.showError(title: 'Error', message: 'Security service not available');
       return;
     }
     
@@ -389,37 +388,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final success = await securityService.removePinCode(_currentPinController.text);
         
         if (success) {
-          Get.snackbar('Success', 'PIN removed successfully');
+          SnackbarUtils.showSuccess(title: 'Success', message: 'PIN removed successfully');
           _currentPinController.clear();
           setState(() {
             // Update UI
           });
         } else {
-          Get.snackbar('Error', 'Failed to remove PIN. Please check your current PIN.');
+          SnackbarUtils.showError(title: 'Error', message: 'Failed to remove PIN. Please check your current PIN.');
         }
       } catch (e) {
-        Get.snackbar('Error', 'Error removing PIN: $e');
+        SnackbarUtils.showError(title: 'Error', message: 'Error removing PIN: $e');
       }
+    }
+  }
+
+  /// Safely shows a snackbar by ensuring the overlay is ready
+  void _safeShowSnackbar({
+    required String title,
+    required String message,
+    Color? backgroundColor,
+  }) {
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && Get.overlayContext != null) {
+          SnackbarUtils.showSnackbar(
+            title: title,
+            message: message,
+            backgroundColor: backgroundColor,
+            duration: const Duration(seconds: 3),
+          );
+        }
+      });
     }
   }
 
   Future<void> _toggleBiometrics(bool value) async {
     final securityService = _securityService;
     if (securityService == null) {
-      Get.snackbar('Error', 'Security service not available');
+      _safeShowSnackbar(
+        title: 'Error',
+        message: 'Security service not available',
+        backgroundColor: Colors.red.withOpacity(0.8),
+      );
       return;
     }
     
     try {
       if (value) {
+        // Check if PIN is set before enabling biometrics
+        final hasPIN = await securityService.hasPinSet();
+        if (!hasPIN) {
+          // Show dialog to inform user they need to create a PIN first
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.security, color: Colors.orange),
+                  SizedBox(width: 12),
+                  Text('PIN Required'),
+                ],
+              ),
+              content: const Text(
+                'You need to create a PIN code before enabling biometric authentication. '
+                'The PIN serves as a backup when biometrics fail or are unavailable.\n\n'
+                'Would you like to create a PIN now?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _showPinSetup();
+                  },
+                  child: const Text('Create PIN'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+        
         final success = await securityService.enableBiometrics();
         if (success) {
           setState(() {
             _useBiometrics = value;
           });
-          Get.snackbar('Success', 'Biometric authentication enabled');
+          _safeShowSnackbar(
+            title: 'Success',
+            message: 'Biometric authentication enabled',
+            backgroundColor: Colors.green.withOpacity(0.8),
+          );
         } else {
-          Get.snackbar('Error', 'Failed to enable biometric authentication');
+          _safeShowSnackbar(
+            title: 'Error',
+            message: 'Failed to enable biometric authentication',
+            backgroundColor: Colors.red.withOpacity(0.8),
+          );
         }
       } else {
         final success = await securityService.disableBiometrics();
@@ -427,11 +495,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
           setState(() {
             _useBiometrics = value;
           });
-          Get.snackbar('Success', 'Biometric authentication disabled');
+          _safeShowSnackbar(
+            title: 'Success',
+            message: 'Biometric authentication disabled',
+            backgroundColor: Colors.green.withOpacity(0.8),
+          );
         }
       }
     } catch (e) {
-      Get.snackbar('Error', 'Error toggling biometrics: $e');
+      _safeShowSnackbar(
+        title: 'Error',
+        message: 'Error toggling biometrics: $e',
+        backgroundColor: Colors.red.withOpacity(0.8),
+      );
+    }
+  }
+  
+  Future<void> _showPinSetup() async {
+    // Navigate to PIN setup and wait for result
+    final result = await Get.to(() => const PinSetupScreen(
+      isOptional: false,
+      title: 'Create Your PIN',
+    ));
+    
+    // After PIN is created (if successful), automatically try to enable biometrics
+    if (result == true && mounted) {
+      // Small delay to ensure UI is stable
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) {
+          _toggleBiometrics(true);
+        }
+      });
     }
   }
 
@@ -439,12 +533,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Check if QR service is available
     final qrService = _qrLoginService;
     if (qrService == null) {
-      Get.snackbar(
-        'Error', 
-        'QR service not available. Please restart the app.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error', 
+        message: 'QR service not available. Please restart the app.',
       );
       return;
     }
@@ -476,11 +567,242 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: const Text('Settings'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF121212),
+              const Color(0xFF1E1E1E),
+              Theme.of(context).primaryColor.withValues(alpha: 0.08),
+            ],
+          ),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Account Information Section
+            Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 24),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.account_circle, color: Color(0xFF1E8E3E)),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Account Information',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    FutureBuilder<String?>(
+                      future: _authService.getUserId(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Row(
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                              SizedBox(width: 12),
+                              Text('Loading user ID...'),
+                            ],
+                          );
+                        }
+                        
+                        final userId = snapshot.data;
+                        
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.fingerprint, size: 20, color: Color(0xFF1E8E3E)),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'User ID',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (userId != null)
+                                    IconButton(
+                                      icon: const Icon(Icons.copy, size: 18),
+                                      onPressed: () {
+                                        Clipboard.setData(ClipboardData(text: userId));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('User ID copied to clipboard'),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                      tooltip: 'Copy User ID',
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              SelectableText(
+                                userId ?? 'Not available',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (userId != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'This ID is used for subscription and storage tracking',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[400],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Storage Usage Section
+            GetX<StorageService>(
+              builder: (storageService) {
+                return Card(
+                  elevation: 2,
+                  margin: const EdgeInsets.only(bottom: 24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.storage, color: storageService.getStorageStatusColor()),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Storage Usage',
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                            const Spacer(),
+                            GetX<RevenueCatService>(
+                              builder: (revenueCatService) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: revenueCatService.isPro.value 
+                                        ? const Color(0xFF1E8E3E) 
+                                        : Colors.grey.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    revenueCatService.isPro.value ? 'PRO' : 'FREE',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Storage usage text
+                        Text(
+                          storageService.getStorageUsageText(),
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${storageService.getPercentageText()} used',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[400],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        // Progress bar
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            value: storageService.percentageUsed.value / 100,
+                            backgroundColor: Colors.grey.withOpacity(0.2),
+                            color: storageService.getStorageStatusColor(),
+                            minHeight: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        // Storage tier info
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Storage Plan: ${storageService.getStorageTierName()}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[400],
+                              ),
+                            ),
+                            GetX<RevenueCatService>(
+                              builder: (revenueCatService) {
+                                if (!revenueCatService.isPro.value) {
+                                  return TextButton.icon(
+                                    onPressed: () {
+                                      revenueCatService.presentPaywall();
+                                    },
+                                    icon: const Icon(Icons.upgrade, size: 16),
+                                    label: const Text('Upgrade'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: const Color(0xFF1E8E3E),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            
             // Basic Settings Section
             Card(
               elevation: 2,
@@ -507,12 +829,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: _selectedBackupOption == 'Self-Hosted SIA Node' ? 'SecureSphere' : _selectedBackupOption,
+                      value: _selectedBackupOption == 'Self-Hosted SIA Node' ? 'DecVault' : _selectedBackupOption,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       ),
-                      items: ['SecureSphere'].map((String option) {
+                      items: ['DecVault'].map((String option) {
                         return DropdownMenuItem<String>(
                           value: option,
                           child: Text(option),
@@ -522,11 +844,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (newValue != null) {
                           setState(() {
                             _selectedBackupOption = newValue;
-                            _siaStatusMessage = 'Using SecureSphere SIA Node';
+                            _siaStatusMessage = 'Using DecVault SIA Node';
                             _siaConnected = false;
                           });
                           
-                          // Clear SIA form when switching to SecureSphere
+                          // Clear SIA form when switching to DecVault
                           _siaIpController.clear();
                           _siaPortController.clear();
                           _siaPasswordController.clear();
@@ -550,7 +872,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const SizedBox(width: 8),
                           const Expanded(
                             child: Text(
-                              'SecureSphere uses decentralized servers with full encryption. No one has access to your data.',
+                              'DecVault uses decentralized servers with full encryption. No one has access to your data.',
                               style: TextStyle(fontSize: 13),
                             ),
                           ),
@@ -717,8 +1039,191 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             
+            // About Section
+            Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 24),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: Color(0xFF4285F4)),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'About DecVault',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // App Version
+                    const ListTile(
+                      leading: Icon(Icons.info, color: Color(0xFF4285F4)),
+                      title: Text('Version'),
+                      subtitle: Text('1.0.0'),
+                    ),
+                    const Divider(),
+                    
+                    // Developer
+                    const ListTile(
+                      leading: Icon(Icons.person, color: Color(0xFF4285F4)),
+                      title: Text('Developer'),
+                      subtitle: Text('DecVault Team'),
+                    ),
+                    const Divider(),
+                    
+                    // Privacy Policy
+                    ListTile(
+                      leading: const Icon(Icons.privacy_tip, color: Color(0xFF4285F4)),
+                      title: const Text('Privacy Policy'),
+                      subtitle: const Text('View our privacy policy'),
+                      trailing: const Icon(Icons.open_in_new, size: 16),
+                      onTap: () async {
+                        final url = Uri.parse('https://decvault.com/privacy-policy');
+                        try {
+                          if (await canLaunchUrl(url)) {
+                            await launchUrl(url, mode: LaunchMode.externalApplication);
+                          } else {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Could not open privacy policy'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                    const Divider(),
+                    
+                    // Terms of Service
+                    ListTile(
+                      leading: const Icon(Icons.description, color: Color(0xFF4285F4)),
+                      title: const Text('Terms of Service'),
+                      subtitle: const Text('View our terms of service'),
+                      trailing: const Icon(Icons.open_in_new, size: 16),
+                      onTap: () async {
+                        final url = Uri.parse('https://decvault.com/terms');
+                        try {
+                          if (await canLaunchUrl(url)) {
+                            await launchUrl(url, mode: LaunchMode.externalApplication);
+                          } else {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Could not open terms of service'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Delete Account Section (at the end)
+            Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 24),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.warning, color: Colors.red, size: 24),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Delete Account',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Danger Zone',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Permanently delete your account and all associated data. This action cannot be undone.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () => _showDeleteAccountDialog(),
+                              icon: const Icon(Icons.delete_forever, size: 18),
+                              label: const Text('Delete Account'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           ],
+          ),
         ),
       ),
     );
@@ -797,7 +1302,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _saveSiaSettings() async {
-    print('[DEBUG] Starting SIA connect & save process');
     setState(() {
       _siaStatusMessage = null;
       _siaPutCommand = null;
@@ -808,7 +1312,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final portText = _siaPortController.text.trim();
     final password = _siaPasswordController.text;
     
-    print('[DEBUG] Input values - Host: $host, Port: $portText, Password: ${password.isNotEmpty ? "***" : "(empty)"}');
     
     // Input validation
     if (host.isEmpty) {
@@ -870,9 +1373,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // Also save in the format that vault/backup services expect
         await _saveSiaConfigForServices(host, port, password);
         
-        print('SIA password saved locally and configuration reloaded');
       } catch (e) {
-        print('Error saving SIA password locally: $e');
         setState(() {
           _siaStatusMessage = 'Failed to save SIA password: $e';
           _siaConnected = false;
@@ -884,11 +1385,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Test connection to SIA node
       final authHeader = 'Basic ' + base64Encode(utf8.encode(':$password'));
       final url = 'http://$host:$port${ApiConfig.siaWorkerStatePath}';
-      print('[DEBUG] Attempting authentication to $url');
       
       final response = await http.get(Uri.parse(url), headers: {'Authorization': authHeader});
-      print('[DEBUG] Authentication response status: ${response.statusCode}');
-      print('[DEBUG] Authentication response body: ${response.body}');
       
       if (response.statusCode == 200) {
         try {
@@ -908,43 +1406,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             
             // Set flag to indicate successful manual connection
             await prefs.setBool('sia_manually_connected', true);
-            print('[DEBUG] Set manual connection flag to true');
             
-            print('[DEBUG] Authentication successful, SIA node configured');
-            Get.snackbar('Success', 'SIA node connected and configured successfully');
+            SnackbarUtils.showSuccess(title: 'Success', message: 'SIA node connected and configured successfully');
           } else {
             setState(() {
               _siaStatusMessage = 'Invalid response from SIA worker. Please check your connection.';
               _siaConnected = false;
             });
-            print('[DEBUG] Invalid response format');
           }
         } catch (e) {
           setState(() {
             _siaStatusMessage = 'Invalid JSON response from SIA worker.';
             _siaConnected = false;
           });
-          print('[DEBUG] JSON parsing error: $e');
         }
       } else if (response.statusCode == 401 || response.body.contains('Unauthorized')) {
         setState(() {
           _siaStatusMessage = 'Authentication failed. Please verify your password.';
           _siaConnected = false;
         });
-        print('[DEBUG] Authentication failed (401/Unauthorized)');
       } else {
         setState(() {
           _siaStatusMessage = 'Connection failed. Please verify your host and port.';
           _siaConnected = false;
         });
-        print('[DEBUG] Connection failed with status ${response.statusCode}');
       }
     } catch (e) {
       setState(() {
         _siaStatusMessage = 'Connection error: $e';
         _siaConnected = false;
       });
-      print('[DEBUG] Connection error: $e');
     }
     
     setState(() {
@@ -956,26 +1447,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final userId = await _authService.getUserId();
       if (userId == null) {
-        print('SETTINGS: Cannot save SIA config - userId is null');
-        Get.snackbar(
-          'Error',
-          'User ID not available. Please try logging in again.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'User ID not available. Please try logging in again.',
         );
         return false;
       }
       
       // Check if API key is configured
       if (ApiConfig.psqlApiKey.isEmpty) {
-        print('SETTINGS: API key not configured');
-        Get.snackbar(
-          'Configuration Error',
-          'Backend API key not configured. SIA config will be saved locally only.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showWarning(
+          title: 'Configuration Error',
+          message: 'Backend API key not configured. SIA config will be saved locally only.',
         );
         return true; // Continue with local storage only
       }
@@ -993,9 +1476,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       };
       
       // Debug logging
-      print('SETTINGS: Saving SIA config to backend');
-      print('SETTINGS: URL: $url');
-      print('SETTINGS: Payload data: $payloadData');
       
       final response = await http.post(url, headers: headers, body: payload).timeout(
         const Duration(seconds: 10),
@@ -1004,25 +1484,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       );
       
-      print('SETTINGS: Response status: ${response.statusCode}');
-      print('SETTINGS: Response body: ${response.body}');
       
       if (response.statusCode == 200 || response.statusCode == 201) {
-        print('SETTINGS: SIA config saved to backend successfully');
         return true;
       } else {
-        print('SETTINGS: Failed to save SIA config - Status: ${response.statusCode}');
-        Get.snackbar(
-          'Backend Error',
-          'Failed to save SIA config to server (${response.statusCode}). Config saved locally.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showWarning(
+          title: 'Backend Error',
+          message: 'Failed to save SIA config to server (${response.statusCode}). Config saved locally.',
         );
         return true; // Continue with local storage
       }
     } catch (e) {
-      print('SETTINGS: Exception while saving SIA config to backend: $e');
       
       String userMessage = 'Backend server not available. Config saved locally only.';
       if (e.toString().contains('Connection refused')) {
@@ -1031,12 +1503,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         userMessage = 'Backend server timeout. SIA config saved locally only.';
       }
       
-      Get.snackbar(
-        'Backend Unavailable',
-        userMessage,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.withOpacity(0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showWarning(
+        title: 'Backend Unavailable',
+        message: userMessage,
       );
       
       return true; // Continue with local storage only
@@ -1051,16 +1520,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final configData = {
         'host': host,
         'port': port,
-        'isSecureSphereManagedNode': false,
+        'isDecVaultManagedNode': false,
       };
       
       // Save to a key that SIA service can read
       await prefs.setString('local_sia_config', jsonEncode(configData));
-      print('SETTINGS: SIA config saved locally: $configData');
       
       return true;
     } catch (e) {
-      print('SETTINGS: Error saving SIA config locally: $e');
       return false;
     }
   }
@@ -1078,10 +1545,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       await prefs.setString('sia_config', jsonEncode(legacyConfig));
       await prefs.setBool('sia_verified', true);
-      print('SETTINGS: SIA config saved for vault/backup services: $host:$port');
       
     } catch (e) {
-      print('SETTINGS: Error saving SIA config for services: $e');
     }
   }
   
@@ -1090,9 +1555,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('backupOption', _selectedBackupOption);
       
-      Get.snackbar('Settings', 'Settings saved successfully');
+      SnackbarUtils.showSuccess(title: 'Settings', message: 'Settings saved successfully');
     } catch (e) {
-      Get.snackbar('Error', 'Failed to save settings: $e');
+      SnackbarUtils.showError(title: 'Error', message: 'Failed to save settings: $e');
     }
   }
   
@@ -1100,14 +1565,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<Map<String, String>?> getCurrentSiaConfig() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
-      if (backupOption == 'SecureSphere') {
-        // Use SecureSphere config from api_config.dart (but hide password in settings)
+      if (backupOption == 'DecVault') {
+        // Use DecVault config from api_config.dart (but hide password in settings)
         return {
           'host': ApiConfig.SSip,
           'port': ApiConfig.SSport,
-          'password': '', // Never show SecureSphere password in settings
+          'password': '', // Never show DecVault password in settings
         };
       } else {
         // Get self-hosted config from backend
@@ -1127,7 +1592,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final node = data['node'] as Map<String, dynamic>;
           
           // For settings display, never show the actual password
-          print('SETTINGS: Self-hosted config found, but not showing stored password in settings');
           
           return {
             'host': node['host'] ?? '',
@@ -1137,7 +1601,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
     } catch (e) {
-      print('Error getting SIA config: $e');
     }
     return null;
   }
@@ -1244,7 +1707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _showAutoLockDialog() async {
     final securityService = _securityService;
     if (securityService == null) {
-      Get.snackbar('Error', 'Security service not available');
+      SnackbarUtils.showError(title: 'Error', message: 'Security service not available');
       return;
     }
     
@@ -1455,7 +1918,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _showAutoLockTimePicker() async {
     final securityService = _securityService;
     if (securityService == null) {
-      Get.snackbar('Error', 'Security service not available');
+      SnackbarUtils.showError(title: 'Error', message: 'Security service not available');
       return;
     }
     
@@ -1509,9 +1972,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       try {
         await securityService.setAutoLockTime(selectedOption['minutes'] as int);
         setState(() {});
-        Get.snackbar('Success', 'Auto-lock timer updated');
+        SnackbarUtils.showSuccess(title: 'Success', message: 'Auto-lock timer updated');
       } catch (e) {
-        Get.snackbar('Error', 'Failed to update auto-lock timer: $e');
+        SnackbarUtils.showError(title: 'Error', message: 'Failed to update auto-lock timer: $e');
       }
     }
   }
@@ -1521,12 +1984,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final seedPhrase = await _authService.getStoredSeedPhrase();
       
       if (seedPhrase == null || seedPhrase.isEmpty) {
-        Get.snackbar(
-          'Error', 
-          'No recovery phrase found',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.withOpacity(0.8),
-          colorText: Colors.white,
+        SnackbarUtils.showError(
+          title: 'Error', 
+          message: 'No recovery phrase found',
         );
         return;
       }
@@ -1584,7 +2044,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           SizedBox(height: 8),
                           Text(
                             '• Never share your recovery phrase with anyone\n'
-                            '• SecureSphere will never ask for your phrase\n'
+                            '• DecVault will never ask for your phrase\n'
                             '• Store it safely offline in multiple locations\n'
                             '• Anyone with this phrase can access your account',
                             style: TextStyle(fontSize: 13),
@@ -1679,10 +2139,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   child: ElevatedButton.icon(
                                     onPressed: () {
                                       // Copy to clipboard functionality could be added here
-                                      Get.snackbar(
-                                        'Info',
-                                        'For security, copy manually by selecting the text',
-                                        snackPosition: SnackPosition.BOTTOM,
+                                      SnackbarUtils.showInfo(
+                                        title: 'Info',
+                                        message: 'For security, copy manually by selecting the text',
                                       );
                                     },
                                     icon: const Icon(Icons.copy),
@@ -1718,13 +2177,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     } catch (e) {
-      Get.snackbar(
-        'Error', 
-        'Failed to retrieve recovery phrase: $e',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.withOpacity(0.8),
-        colorText: Colors.white,
+      SnackbarUtils.showError(
+        title: 'Error', 
+        message: 'Failed to retrieve recovery phrase: $e',
       );
+    }
+  }
+  
+  Future<void> _showDeleteAccountDialog() async {
+    // Show confirmation dialog
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Delete Account',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you absolutely sure you want to delete your account?',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'This action will permanently:',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            SizedBox(height: 8),
+            Text('• Delete your account from our servers'),
+            Text('• Remove all your backups and data'),
+            Text('• Clear all local app data'),
+            SizedBox(height: 12),
+            Text(
+              'This action cannot be undone. Make sure you have backed up your recovery phrase if you want to recover your data later.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.red,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Get.back(result: true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete Account'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Show loading indicator
+      Get.dialog(
+        const Center(
+          child: CircularProgressIndicator(),
+        ),
+        barrierDismissible: false,
+      );
+      
+      try {
+        final success = await _authService.deleteAccount();
+        
+        Get.back(); // Close loading dialog
+        
+        if (success) {
+          SnackbarUtils.showSuccess(
+            title: 'Account Deleted',
+            message: 'Your account has been permanently deleted',
+          );
+        } else {
+          SnackbarUtils.showError(
+            title: 'Error',
+            message: 'Failed to delete account. Please try again.',
+          );
+        }
+      } catch (e) {
+        Get.back(); // Close loading dialog
+        
+        SnackbarUtils.showError(
+          title: 'Error',
+          message: 'Failed to delete account: $e',
+        );
+      }
     }
   }
 }
