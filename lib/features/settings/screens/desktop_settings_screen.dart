@@ -53,6 +53,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   bool _useBiometrics = false;
   bool _siaConnected = false;
   bool _seedPhraseVisible = false;
+  int _autoLockTimeSeconds = 60; // Default 60 seconds
   
   final AuthService _authService = Get.find<AuthService>();
   SecurityService? get _securityService {
@@ -68,6 +69,21 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   void initState() {
     super.initState();
     _checkBiometrics();
+
+    // Allow deep-linking into a specific settings category (e.g. About)
+    try {
+      final args = Get.arguments;
+      if (args is Map && args['initialCategory'] is String) {
+        final initial = args['initialCategory'] as String;
+        // Only apply if it matches a known category
+        const allowed = ['security', 'backup', 'general', 'about'];
+        if (allowed.contains(initial)) {
+          _selectedCategory = initial;
+        }
+      }
+    } catch (_) {
+      // Ignore invalid arguments
+    }
     _loadBiometricsSetting();
     _loadBackupOption();
     _loadSiaConnectionStatus();
@@ -98,6 +114,17 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
     _newPinController.dispose();
     _confirmPinController.dispose();
     super.dispose();
+  }
+
+  String _getAutoLockTimeLabel(int seconds) {
+    if (seconds == 0) return 'Disabled';
+    if (seconds < 60) return '$seconds seconds';
+    final minutes = seconds ~/ 60;
+    if (minutes == 1) return '1 minute';
+    if (minutes < 60) return '$minutes minutes';
+    final hours = minutes ~/ 60;
+    if (hours == 1) return '1 hour';
+    return '$hours hours';
   }
 
   Future<void> _showLogoutDialog() async {
@@ -309,7 +336,13 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   }
 
   Future<void> _loadSecuritySettings() async {
-    // Load any additional security settings here
+    // Load auto-lock time setting
+    if (_securityService != null) {
+      final settings = _securityService!.securitySettings;
+      setState(() {
+        _autoLockTimeSeconds = settings.autoLockTimeSeconds;
+      });
+    }
   }
 
   Widget _buildSidebar() {
@@ -490,13 +523,76 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                 },
               ),
               const Divider(),
-              SwitchListTile(
-                title: const Text('Auto-lock'),
-                subtitle: const Text('Lock app when inactive'),
-                value: true, // This should be loaded from settings
-                onChanged: (value) {
-                  // Implement auto-lock toggle
-                },
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Auto-Lock Timer',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Choose how long the app stays unlocked when inactive',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<int>(
+                      value: _autoLockTimeSeconds,
+                      decoration: const InputDecoration(
+                        labelText: 'Auto-Lock After',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.timer),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                        DropdownMenuItem(value: 60, child: Text('1 minute')),
+                        DropdownMenuItem(value: 120, child: Text('2 minutes')),
+                        DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                        DropdownMenuItem(value: 600, child: Text('10 minutes')),
+                        DropdownMenuItem(value: 1800, child: Text('30 minutes')),
+                        DropdownMenuItem(value: 0, child: Text('Never (Disabled)')),
+                      ],
+                      onChanged: (value) async {
+                        if (value != null && _securityService != null) {
+                          setState(() {
+                            _autoLockTimeSeconds = value;
+                          });
+                          
+                          await _securityService!.setAutoLockTime(value);
+                          
+                          if (mounted) {
+                            String message = value == 0 
+                                ? 'Auto-lock disabled' 
+                                : 'Auto-lock timer set to ${_getAutoLockTimeLabel(value)}';
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const Icon(Icons.check_circle, color: Colors.white),
+                                    const SizedBox(width: 8),
+                                    Text(message),
+                                  ],
+                                ),
+                                duration: const Duration(seconds: 2),
+                                backgroundColor: const Color(0xFF1E8E3E),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

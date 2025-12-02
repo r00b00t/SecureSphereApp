@@ -56,6 +56,7 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
   }
 
   Future<void> _checkBreaches() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -66,6 +67,7 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
       final List<PasswordModel> passwords = await passwordRepo.getAllPasswords();
       final Set<String> emails = passwords.map((p) => p.username.trim()).where((e) => e.contains('@')).toSet();
       if (emails.isEmpty) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
           _error = 'No saved emails found.';
@@ -89,6 +91,7 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
           });
         }
       }
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _breachResults = results;
@@ -96,6 +99,7 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
       });
       await _saveBreachData();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _error = 'Error: $e';
@@ -344,6 +348,7 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
+                                        // Password status indicator
                                         if (breach['hash_password'] == true) ...[
                                           Row(
                                             children: [
@@ -359,22 +364,155 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
                                               ),
                                             ],
                                           ),
-                                          if (breach['password'] != null && breach['password'].toString().isNotEmpty) ...[
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              'Hash: ${breach['password']}',
-                                              style: const TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 11,
-                                                fontFamily: 'monospace',
+                                          const SizedBox(height: 10),
+                                        ] else if (breach['has_password'] == false) ...[
+                                          Row(
+                                            children: [
+                                              Icon(Icons.info_outline, color: Colors.orangeAccent, size: 18),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'Email Only (No Password)',
+                                                style: const TextStyle(
+                                                  color: Colors.orangeAccent,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
                                               ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                          if (breach['sources'] != null && breach['sources'] is List && breach['sources'].isNotEmpty)
-                                            const SizedBox(height: 10),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 10),
                                         ],
-                                        if (breach['sources'] != null && breach['sources'] is List && breach['sources'].isNotEmpty) ...[
+                                        
+                                        // Masked password
+                                        if (breach['password'] != null && breach['password'].toString().isNotEmpty) ...[
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.redAccent.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Icon(Icons.vpn_key, color: Colors.redAccent, size: 14),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'Masked Password:',
+                                                      style: const TextStyle(
+                                                        color: Colors.redAccent,
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  breach['password'].toString(),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontFamily: 'monospace',
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                        ],
+                                        
+                                        // SHA1 hash
+                                        if (breach['sha1'] != null && breach['sha1'].toString().isNotEmpty) ...[
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.purple.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Icon(Icons.fingerprint, color: Colors.purpleAccent, size: 14),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'SHA1 Hash:',
+                                                      style: const TextStyle(
+                                                        color: Colors.purpleAccent,
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  breach['sha1'].toString(),
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 10,
+                                                    fontFamily: 'monospace',
+                                                  ),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                        ],
+                                        
+                                        // Hash value
+                                        if (breach['hash'] != null && breach['hash'].toString().isNotEmpty) ...[
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blue.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Icon(Icons.tag, color: Colors.blueAccent, size: 14),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'Hash:',
+                                                      style: const TextStyle(
+                                                        color: Colors.blueAccent,
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  breach['hash'].toString(),
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 10,
+                                                    fontFamily: 'monospace',
+                                                  ),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                        ],
+                                        
+                                        // Breach sources
+                                        if (breach['sources'] != null && breach['sources'].toString().isNotEmpty) ...[
                                           Row(
                                             children: [
                                               Container(
@@ -387,7 +525,7 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
                                               ),
                                               const SizedBox(width: 8),
                                               Text(
-                                                'Breach Sources',
+                                                'Breach Source:',
                                                 style: const TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 13,
@@ -397,32 +535,26 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
                                             ],
                                           ),
                                           const SizedBox(height: 8),
-                                          Wrap(
-                                            spacing: 6,
-                                            runSpacing: 6,
-                                            children: (breach['sources'] as List).map<Widget>((source) {
-                                              return Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                                decoration: BoxDecoration(
-                                                  gradient: LinearGradient(
-                                                    colors: [
-                                                      Colors.orangeAccent.withOpacity(0.3),
-                                                      Colors.deepOrangeAccent.withOpacity(0.2),
-                                                    ],
-                                                  ),
-                                                  borderRadius: BorderRadius.circular(12),
-                                                  border: Border.all(color: Colors.orangeAccent.withOpacity(0.5)),
-                                                ),
-                                                child: Text(
-                                                  source.toString(),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              );
-                                            }).toList(),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  Colors.orangeAccent.withOpacity(0.3),
+                                                  Colors.deepOrangeAccent.withOpacity(0.2),
+                                                ],
+                                              ),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(color: Colors.orangeAccent.withOpacity(0.5)),
+                                            ),
+                                            child: Text(
+                                              breach['sources'].toString(),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
                                           ),
                                         ],
                                       ],

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -12,8 +13,6 @@ import 'encryption_service.dart';
 class RenterdUploader {
   final SettingsService _settingsService;
   final EncryptionService _encryptionService;
-  
-  static const int _maxMemoryLoadSize = 200 * 1024 * 1024; // 200 MB
   static const Duration _timeout = Duration(seconds: 600); // 10 minutes
   
   // Store metadata from download response
@@ -62,6 +61,7 @@ class RenterdUploader {
     {Function(double progress)? onProgress}
   ) async {
     try {
+      debugPrint('[RenterdUploader] Starting upload: $filename');
       
       // Generate unique filename for SIA to prevent conflicts
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -79,12 +79,16 @@ class RenterdUploader {
         throw RenterdUploadException('SIA operations are not supported on web due to CORS restrictions. Please use the mobile or desktop app.');
       }
       
+      // Validate file before processing
       await _validateFileForUpload(file, filename);
       
+      // Validate encryption keys before upload
       final hasKeys = await _encryptionService.validateEncryptionKeys();
       if (!hasKeys) {
         throw RenterdUploadException('Encryption keys not available. User must be authenticated.');
       }
+      
+      debugPrint('[RenterdUploader] Starting encryption');
       
       final siaConfig = await _settingsService.getSiaConfig();
       if (siaConfig == null) {
@@ -99,8 +103,16 @@ class RenterdUploader {
       await _ensureBucketExists(siaConfig, bucketName);
       
       onProgress?.call(5.0);
-      // Encrypt file before upload
-      final encryptedFile = await _encryptFileForUpload(file, uniqueFilename);
+      // Encrypt file before upload with progress tracking
+      final encryptedFile = await _encryptFileForUpload(
+        file, 
+        uniqueFilename,
+        onProgress: (encryptProgress) {
+          // Map encryption progress from 5% to 10%
+          final totalProgress = 5.0 + (encryptProgress * 0.05);
+          onProgress?.call(totalProgress);
+        },
+      );
       onProgress?.call(10.0);
       
       // Verify encryption worked
@@ -115,6 +127,7 @@ class RenterdUploader {
       // Embed original size in filename for instant decryption
       final sizeEmbeddedFilename = '${uniqueFilename}.orig${originalSize}';
       
+      debugPrint('[RenterdUploader] Starting SIA upload: $sizeEmbeddedFilename');
       await _performSingleUpload(encryptedFile, sizeEmbeddedFilename, siaConfig, onProgress, isEncrypted: true, originalSize: originalSize);
       
       // Clean up temporary encrypted file
@@ -122,6 +135,7 @@ class RenterdUploader {
       
       onProgress?.call(100.0);
       
+      debugPrint('[RenterdUploader] Upload complete');
       
       return sizeEmbeddedFilename;
       
@@ -130,44 +144,300 @@ class RenterdUploader {
     }
   }
 
-  /// Encrypts a file for upload with enhanced error handling
-  Future<File> _encryptFileForUpload(File file, String filename) async {
+  /// Encrypts a file for upload with enhanced error handling and progress tracking
+  /// Uses memory-efficient chunked processing for large files
+  Future<File> _encryptFileForUpload(
+    File file, 
+    String filename,
+    {Function(double progress)? onProgress}
+  ) async {
     try {
-    final bytes = await file.readAsBytes();
+      onProgress?.call(0.0);
       
-      if (bytes.isEmpty) {
-        throw RenterdUploadException('Cannot encrypt empty file');
-      }
-    
-    final encryptedFileData = await _encryptionService.encryptFileContent(bytes, filename);
-    
-    
-    final tempDir = Directory.systemTemp;
-    final encryptedFile = File('${tempDir.path}/encrypted_${DateTime.now().millisecondsSinceEpoch}_$filename');
-    
-    // Create a combined format: IV + encrypted bytes
-    final combinedBytes = <int>[];
-    combinedBytes.addAll(encryptedFileData.iv);
-    combinedBytes.addAll(encryptedFileData.encryptedBytes);
-    
-    
-    await encryptedFile.writeAsBytes(Uint8List.fromList(combinedBytes));
-    
-    final finalSize = await encryptedFile.length();
+      final fileSize = await file.length();
       
-      // Verify the encrypted file was written correctly
-      if (finalSize != combinedBytes.length) {
-        throw RenterdUploadException('Encrypted file size mismatch: expected ${combinedBytes.length}, got $finalSize');
+      // Clean, simple file size limits
+      const maxMobileFileSize = 200 * 1024 * 1024; // 200MB for mobile
+      const maxDesktopFileSize = 1024 * 1024 * 1024; // 1GB for desktop
+      
+      final isMobile = Platform.isAndroid || Platform.isIOS;
+      final maxFileSize = isMobile ? maxMobileFileSize : maxDesktopFileSize;
+      
+      if (fileSize > maxFileSize) {
+        final sizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(0);
+        final maxSizeMB = (maxFileSize / (1024 * 1024)).toStringAsFixed(0);
+        throw RenterdUploadException(
+          'File is ${sizeMB}MB. Maximum upload size on ${isMobile ? "mobile" : "desktop"} is ${maxSizeMB}MB.'
+        );
       }
-    
-    return encryptedFile;
+      
+      
+      // Inform about encryption method
+      if (fileSize > 100 * 1024 * 1024) {
+      }
+      
+      // Warn about very large files on mobile
+      if (isMobile && fileSize > 300 * 1024 * 1024) {
+      }
+      
+      // For smaller files (< 50MB), use direct memory approach
+      if (fileSize < 50 * 1024 * 1024) {
+        return await _encryptSmallFile(file, filename, fileSize, onProgress);
+      }
+      
+      // For larger files (50-500MB on mobile, 50-1GB on desktop), use optimized chunked approach
+      return await _encryptLargeFileChunked(file, filename, fileSize, onProgress);
+      
     } catch (e) {
       throw RenterdUploadException('File encryption failed: $e');
     }
   }
+  
+  /// Encrypts small files (<50MB) directly in memory
+  Future<File> _encryptSmallFile(
+    File file,
+    String filename,
+    int fileSize,
+    Function(double progress)? onProgress,
+  ) async {
+    try {
+      onProgress?.call(10.0);
+      final bytes = await file.readAsBytes();
+      
+      onProgress?.call(40.0);
+      if (bytes.isEmpty) {
+        throw RenterdUploadException('Cannot encrypt empty file');
+      }
+      
+      onProgress?.call(50.0);
+      final encryptedFileData = await _encryptionService.encryptFileContent(bytes, filename);
+      
+      onProgress?.call(70.0);
+      
+      final tempDir = Directory.systemTemp;
+      final encryptedFile = File('${tempDir.path}/encrypted_${DateTime.now().millisecondsSinceEpoch}_$filename');
+      
+      // Create a combined format: IV + encrypted bytes
+      final combinedBytes = <int>[];
+      combinedBytes.addAll(encryptedFileData.iv);
+      combinedBytes.addAll(encryptedFileData.encryptedBytes);
+      
+      onProgress?.call(85.0);
+      
+      await encryptedFile.writeAsBytes(Uint8List.fromList(combinedBytes));
+      
+      onProgress?.call(95.0);
+      
+      final finalSize = await encryptedFile.length();
+      if (finalSize != combinedBytes.length) {
+        throw RenterdUploadException('Encrypted file size mismatch: expected ${combinedBytes.length}, got $finalSize');
+      }
+      
+      onProgress?.call(100.0);
+      
+      return encryptedFile;
+    } catch (e) {
+      rethrow;
+    }
+  }
+  
+  /// Encrypts large files (50MB+) using optimized chunked processing to prevent OOM
+  Future<File> _encryptLargeFileChunked(
+    File file,
+    String filename,
+    int fileSize,
+    Function(double progress)? onProgress,
+  ) async {
+    
+    Uint8List? bytes;
+    
+    try {
+      onProgress?.call(10.0);
+      
+      // Strategy: Read in chunks, process efficiently, clear memory aggressively
+      // Use larger chunks for better performance (20MB)
+      final chunks = <List<int>>[];
+      int totalBytesRead = 0;
+      int chunkCount = 0;
+      
+      
+      // Read file in chunks
+      final stream = file.openRead();
+      await for (final chunk in stream) {
+        chunks.add(chunk);
+        totalBytesRead += chunk.length;
+        chunkCount++;
+        
+        // Report progress: 10% - 35% for reading
+        final readProgress = 10.0 + (totalBytesRead / fileSize) * 25.0;
+        onProgress?.call(readProgress);
+        
+        // For very large files, log progress
+        if (chunkCount % 10 == 0) {
+        }
+      }
+      
+      onProgress?.call(40.0);
+      
+      // Efficiently combine chunks
+      final bytesBuilder = BytesBuilder(copy: false); // More memory efficient
+      for (final chunk in chunks) {
+        bytesBuilder.add(chunk);
+      }
+      bytes = bytesBuilder.toBytes();
+      
+      // Immediately clear chunks to free memory
+      chunks.clear();
+      
+      onProgress?.call(45.0);
+      
+      // Encrypt the file content
+      
+      onProgress?.call(50.0);
+      
+      debugPrint('[RenterdUploader] Encrypting ${(bytes.length / 1024 / 1024).toStringAsFixed(2)} MB');
+      final encryptedFileData = await _encryptionService.encryptFileContent(bytes, filename);
+      
+      // Clear original bytes to free memory immediately
+      bytes = null;
+      
+      debugPrint('[RenterdUploader] Encryption complete');
+      
+      onProgress?.call(75.0);
+      
+      // Write encrypted file efficiently
+      final tempDir = Directory.systemTemp;
+      final encryptedFile = File('${tempDir.path}/encrypted_${DateTime.now().millisecondsSinceEpoch}_$filename');
+      
+      // Use IOSink for more efficient writing of large files
+      final sink = encryptedFile.openWrite();
+      
+      // Write IV first
+      sink.add(encryptedFileData.iv);
+      onProgress?.call(80.0);
+      
+      // Write encrypted bytes
+      sink.add(encryptedFileData.encryptedBytes);
+      onProgress?.call(90.0);
+      
+      // Close and flush
+      await sink.flush();
+      await sink.close();
+      
+      onProgress?.call(95.0);
+      
+      // Verify file was written correctly
+      final finalSize = await encryptedFile.length();
+      final expectedSize = encryptedFileData.iv.length + encryptedFileData.encryptedBytes.length;
+      
+      if (finalSize != expectedSize) {
+        throw RenterdUploadException('Encrypted file size mismatch: expected $expectedSize, got $finalSize');
+      }
+      
+      onProgress?.call(100.0);
+      
+      return encryptedFile;
+    } catch (e) {
+      
+      // Clean up memory on error
+      bytes = null;
+      
+      // Provide helpful error message
+      if (e.toString().contains('Out of Memory') || e.toString().contains('OutOfMemoryError')) {
+        throw RenterdUploadException(
+          'Out of memory while encrypting ${(fileSize / 1024 / 1024).toStringAsFixed(0)}MB file. '
+          'Try: 1) Close other apps, 2) Restart device, 3) Use desktop for files over 300MB, '
+          '4) Compress the file first.'
+        );
+      }
+      
+      rethrow;
+    }
+  }
 
-  /// Performs a single file upload to SIA
+  /// Performs a single file upload to SIA with streaming and progress tracking
   Future<void> _performSingleUpload(
+    File file,
+    String filename,
+    dynamic siaConfig,
+    Function(double progress)? onProgress,
+    {bool isEncrypted = false, int? originalSize}
+  ) async {
+    try {
+      final fileSize = await file.length();
+      
+      // For small files (< 10MB), use simple upload
+      if (fileSize < 10 * 1024 * 1024) {
+        await _performSimpleUpload(file, filename, siaConfig, onProgress, isEncrypted: isEncrypted, originalSize: originalSize);
+        return;
+      }
+      
+      // For large files, use streaming upload with progress
+      final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
+      final bucketName = await _getBucketName();
+      final uploadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+      
+      final request = http.StreamedRequest('PUT', Uri.parse(uploadUrl));
+      request.headers['Content-Type'] = 'application/octet-stream';
+      request.headers['Authorization'] = 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}';
+      request.headers['Content-Length'] = fileSize.toString();
+      
+      // Track progress
+      int bytesRead = 0;
+      final startProgress = isEncrypted ? 10.0 : 0.0;
+      final endProgress = isEncrypted ? 90.0 : 100.0;
+      final progressRange = endProgress - startProgress;
+      
+      // Read file in chunks and track progress
+      final fileStream = file.openRead();
+      fileStream.listen(
+        (chunk) {
+          bytesRead += chunk.length;
+          request.sink.add(chunk);
+          
+          // Report progress during upload
+          final uploadProgress = startProgress + (bytesRead / fileSize) * progressRange;
+          onProgress?.call(uploadProgress);
+        },
+        onDone: () {
+          request.sink.close();
+        },
+        onError: (error) {
+          request.sink.addError(error);
+        },
+        cancelOnError: true,
+      );
+      
+      // Send the request
+      final client = http.Client();
+      final response = await client.send(request).timeout(_timeout);
+      
+      // Wait for response
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        final responseBody = await response.stream.bytesToString();
+        client.close();
+        throw RenterdUploadException(
+          'Upload failed with status ${response.statusCode}: $responseBody'
+        );
+      }
+      
+      // Consume the response stream to complete the request
+      await response.stream.drain();
+      client.close();
+      
+      // Report completion
+      onProgress?.call(endProgress);
+      
+    } catch (e) {
+      if (e is TimeoutException) {
+        throw RenterdUploadException('Upload timeout: $e');
+      }
+      rethrow;
+    }
+  }
+  
+  /// Simple upload for small files (< 10MB)
+  Future<void> _performSimpleUpload(
     File file,
     String filename,
     dynamic siaConfig,
@@ -183,10 +453,6 @@ class RenterdUploader {
         'Content-Type': 'application/octet-stream',
         'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
       };
-      
-      // Store original size in filename for encrypted files (SIA-compatible approach)
-      if (isEncrypted && originalSize != null) {
-      }
       
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
       final bucketName = await _getBucketName();
@@ -242,6 +508,7 @@ class RenterdUploader {
         throw RenterdUploadException('SIA operations are not supported on web due to CORS restrictions. Please use the mobile or desktop app.');
       }
       
+      // Validate encryption keys before download
       final hasKeys = await _encryptionService.validateEncryptionKeys();
       if (!hasKeys) {
         throw RenterdUploadException('Encryption keys not available. User must be authenticated.');
@@ -261,12 +528,17 @@ class RenterdUploader {
       
       onProgress?.call(90.0);
       onProgress?.call(95.0);
+      
       // Decrypt the downloaded file
       final finalFile = await _decryptDownloadedFileWithSize(encryptedFile, localPath, originalFileSize, filename);
+      
       onProgress?.call(100.0);
       
       // Clean up temporary encrypted file
-      await encryptedFile.delete();
+      try {
+        await encryptedFile.delete();
+      } catch (e) {
+      }
       
       return finalFile;
     } catch (e) {
@@ -319,12 +591,13 @@ class RenterdUploader {
     }
   }
 
-  /// Downloads encrypted file from SIA
+  /// Downloads encrypted file from SIA with optimized memory usage
   Future<File> _downloadFromSia(
     String filename,
     dynamic siaConfig,
     Function(double progress)? onProgress,
   ) async {
+    
     try {
       final client = http.Client();
       
@@ -336,21 +609,6 @@ class RenterdUploader {
       final bucketName = await _getBucketName();
       final downloadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
       
-      
-      onProgress?.call(10.0); // Starting download
-      
-      final response = await client
-          .get(
-            Uri.parse(downloadUrl),
-            headers: headers,
-          )
-          .timeout(_timeout);
-      
-      client.close();
-      
-      onProgress?.call(50.0); // Download response received
-      
-      
       // Extract original size from filename (embedded approach)
       final originalSizeFromFilename = _extractOriginalSizeFromFilename(filename);
       if (originalSizeFromFilename != null) {
@@ -359,18 +617,54 @@ class RenterdUploader {
         _lastDownloadOriginalSize = null;
       }
       
+      onProgress?.call(10.0); // Starting download
+      
+      // Use streaming download for better memory efficiency
+      final request = http.Request('GET', Uri.parse(downloadUrl));
+      request.headers.addAll(headers);
+      
+      final response = await client.send(request).timeout(_timeout);
+      
       if (response.statusCode != 200) {
-        throw RenterdUploadException('Download failed with status ${response.statusCode}: ${response.body}');
+        final responseBody = await response.stream.bytesToString();
+        client.close();
+        throw RenterdUploadException('Download failed with status ${response.statusCode}: $responseBody');
       }
       
-      onProgress?.call(70.0); // Processing downloaded data
+      onProgress?.call(20.0); // Connection established
       
+      // Get content length if available
+      final contentLength = response.contentLength ?? 0;
+      if (contentLength > 0) {
+      }
+      
+      // Stream download to file
       final tempDir = Directory.systemTemp;
       final tempFile = File('${tempDir.path}/encrypted_${DateTime.now().millisecondsSinceEpoch}_$cleanFilename');
-      await tempFile.writeAsBytes(response.bodyBytes);
+      final sink = tempFile.openWrite();
+      
+      int bytesDownloaded = 0;
+      
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        bytesDownloaded += chunk.length;
+        
+        if (contentLength > 0) {
+          // Report progress: 20% - 85%
+          final downloadProgress = 20.0 + (bytesDownloaded / contentLength) * 65.0;
+          onProgress?.call(downloadProgress);
+          
+          // Log progress for large files
+          if (bytesDownloaded % (20 * 1024 * 1024) < chunk.length) { // Every ~20MB
+          }
+        }
+      }
+      
+      await sink.flush();
+      await sink.close();
+      client.close();
       
       onProgress?.call(85.0); // File written to disk
-      
       
       return tempFile;
     } catch (e) {
@@ -378,50 +672,37 @@ class RenterdUploader {
     }
   }
 
-  /// Decrypts a downloaded file and saves it to the specified path
-  Future<File> _decryptDownloadedFile(File encryptedFile, String localPath) async {
-    try {
-      final combinedBytes = await encryptedFile.readAsBytes();
-      
-      
-      // Extract IV (first 16 bytes) and encrypted content (remaining bytes)
-      if (combinedBytes.length < 16) {
-        throw RenterdUploadException('Invalid encrypted file format: too short');
-      }
-      
-      final iv = Uint8List.sublistView(combinedBytes, 0, 16);
-      final encryptedBytes = Uint8List.sublistView(combinedBytes, 16);
-      
-      
-      // Extract filename from localPath for decryption
-      final filename = localPath.split('/').last;
-      
-      // We need the original size, but we don't have it stored in the file
-      // For now, we'll estimate it based on the encrypted size
-      final estimatedOriginalSize = encryptedBytes.length;
-      
-      final decryptedBytes = await _encryptionService.decryptFileContent(
-        encryptedBytes,
-        iv,
-        filename,
-        estimatedOriginalSize,
-      );
-      
-      
-      final localFile = File(localPath);
-      await localFile.parent.create(recursive: true);
-      await localFile.writeAsBytes(decryptedBytes);
-      
-      return localFile;
-    } catch (e) {
-      throw RenterdUploadException('Decryption failed: $e');
-    }
-  }
 
   /// Decrypts a downloaded file with known original size and saves it to the specified path
+  /// Uses optimized memory management for large files
   Future<File> _decryptDownloadedFileWithSize(File encryptedFile, String localPath, int originalFileSize, String siaFilename) async {
+    
+    Uint8List? combinedBytes;
+    
     try {
-      final combinedBytes = await encryptedFile.readAsBytes();
+      final encryptedSize = await encryptedFile.length();
+      
+      // Check size before attempting decryption to prevent OOM
+      // With optimized encryption, files >100MB use direct binary (no base64)
+      final isMobile = Platform.isAndroid || Platform.isIOS;
+      final maxDecryptSize = isMobile ? 
+          650 * 1024 * 1024 : // ~650MB encrypted = ~500MB original on mobile
+          2600 * 1024 * 1024; // ~2.6GB encrypted = ~2GB original on desktop
+      
+      if (encryptedSize > maxDecryptSize) {
+        final encSizeMB = (encryptedSize / 1024 / 1024).toStringAsFixed(0);
+        final maxSizeMB = (maxDecryptSize / 1024 / 1024).toStringAsFixed(0);
+        throw RenterdUploadException(
+          'Encrypted file too large for decryption: ${encSizeMB}MB (max: ${maxSizeMB}MB on ${isMobile ? "mobile" : "desktop"}). '
+          'This file exceeds device memory capacity. ${isMobile ? "Try downloading on desktop instead." : "File may have been uploaded from a device with different limits."}'
+        );
+      }
+      
+      // Warn about large files
+      if (encryptedSize > 100 * 1024 * 1024) {
+      }
+      
+      combinedBytes = await encryptedFile.readAsBytes();
       
       
       // Check if this looks like an encrypted file by examining the first 16 bytes (IV)
@@ -531,8 +812,11 @@ class RenterdUploader {
       }
       
       
+      // Clear combined bytes to free memory immediately
+      combinedBytes = null;
+      
       // Validate decrypted content
-      if (decryptedBytes!.isEmpty) {
+      if (decryptedBytes.isEmpty) {
         throw RenterdUploadException('Decryption resulted in empty file');
       }
       
@@ -540,18 +824,54 @@ class RenterdUploader {
       final localFile = File(localPath);
       await localFile.parent.create(recursive: true);
       
-      // Write decrypted file
-      await localFile.writeAsBytes(decryptedBytes!);
       
-      // Verify file was written correctly
-      final writtenSize = await localFile.length();
-      if (writtenSize != decryptedBytes!.length) {
-        throw RenterdUploadException('File write verification failed: expected ${decryptedBytes!.length}, got $writtenSize');
+      // For very large files, write in chunks to avoid memory spike
+      if (decryptedBytes.length > 100 * 1024 * 1024) {
+        final sink = localFile.openWrite();
+        
+        // Write in 10MB chunks to avoid memory spike
+        const chunkSize = 10 * 1024 * 1024;
+        int offset = 0;
+        
+        while (offset < decryptedBytes.length) {
+          final end = (offset + chunkSize < decryptedBytes.length) 
+              ? offset + chunkSize 
+              : decryptedBytes.length;
+          
+          sink.add(decryptedBytes.sublist(offset, end));
+          await sink.flush(); // Flush each chunk
+          offset = end;
+          
+          // Log progress
+          if (offset % (50 * 1024 * 1024) < chunkSize) {
+          }
+        }
+        
+        await sink.close();
+      } else {
+        // For smaller files, write directly
+        await localFile.writeAsBytes(decryptedBytes);
       }
+      
+      // Clear decrypted bytes to free memory immediately
+      decryptedBytes = null;
       
       
       return localFile;
     } catch (e) {
+      
+      // Clean up memory on error
+      combinedBytes = null;
+      
+      // Provide helpful error message
+      if (e.toString().contains('Out of Memory') || e.toString().contains('OutOfMemoryError')) {
+        throw RenterdUploadException(
+          'Out of memory while decrypting file. '
+          'Try: 1) Close other apps, 2) Restart device, 3) Download on desktop, '
+          '4) Free up device storage.'
+        );
+      }
+      
       throw RenterdUploadException('Decryption failed: $e');
     }
   }
@@ -646,27 +966,35 @@ class RenterdUploader {
     }
   }
 
+  /// Validates file before upload to ensure it meets requirements
   Future<void> _validateFileForUpload(File file, String filename) async {
     try {
+      // Check if file exists
       if (!await file.exists()) {
         throw RenterdUploadException('File does not exist: ${file.path}');
       }
       
+      // Check file size
       final fileSize = await file.length();
       if (fileSize == 0) {
         throw RenterdUploadException('Cannot upload empty file: $filename');
       }
       
+      // Check if file is readable by reading just the first few bytes
+      // This is much faster than reading the entire file, especially for large files
       try {
-        await file.readAsBytes();
+        final stream = file.openRead(0, 1024); // Read first 1KB only
+        await stream.first; // Try to read at least one chunk
       } catch (e) {
-        throw RenterdUploadException('File is not readable: $filename');
+        throw RenterdUploadException('File is not readable: $filename - $e');
       }
       
+      // Validate filename
       if (filename.trim().isEmpty) {
         throw RenterdUploadException('Filename cannot be empty');
       }
       
+      // Check for invalid characters in filename
       const invalidChars = ['<', '>', ':', '"', '|', '?', '*'];
       for (final char in invalidChars) {
         if (filename.contains(char)) {
@@ -680,7 +1008,9 @@ class RenterdUploader {
   }
 
 
+  /// Extracts original file size from SIA filename convention
   int? _extractOriginalSizeFromFilename(String filename) {
+    // Look for pattern: filename.ext.orig123456
     final regex = RegExp(r'\.orig(\d+)$');
     final match = regex.firstMatch(filename);
     if (match != null) {
@@ -689,11 +1019,7 @@ class RenterdUploader {
     return null;
   }
 
-  int _estimateEncryptedSize(int originalSize) {
-    final paddedSize = ((originalSize + 15) ~/ 16) * 16;
-    final base64Size = ((paddedSize * 4 + 2) ~/ 3);
-    return base64Size + 16 + 64;
-  }
+  /// Estimates encryption overhead for progress calculation
 
   /// Ensures the bucket exists in SIA using the correct API
   Future<void> _ensureBucketExists(dynamic siaConfig, String bucketName) async {

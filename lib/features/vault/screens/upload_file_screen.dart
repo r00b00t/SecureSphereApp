@@ -19,13 +19,24 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
   String _fileName = '';
   String _description = '';
   bool _isUploading = false;
-  double _uploadProgress = 0.0;
+  bool _isSelectingFile = false;
 
   Future<void> _pickFile() async {
+    setState(() {
+      _isSelectingFile = true;
+    });
+    
     try {
+      // Show loading feedback
+      SnackbarUtils.showInfo(
+        title: 'Loading File',
+        message: 'Please wait',
+      );
+      
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.any,
         allowMultiple: false,
+        withData: false, // Don't load file data immediately - much faster!
       );
 
       if (result != null && result.files.single.path != null) {
@@ -33,16 +44,32 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
           _selectedFile = File(result.files.single.path!);
           _fileName = result.files.single.name;
         });
+        
+        // Show success feedback
+        SnackbarUtils.showSuccess(
+          title: 'File Selected',
+          message: _fileName,
+        );
       }
     } catch (e) {
       SnackbarUtils.showError(
         title: 'Error',
         message: 'Failed to pick file: $e',
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSelectingFile = false;
+        });
+      }
     }
   }
 
   Future<void> _pickFromGallery() async {
+    setState(() {
+      _isSelectingFile = true;
+    });
+    
     try {
       final ImagePicker picker = ImagePicker();
       
@@ -82,16 +109,31 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
           _selectedFile = File(pickedFile.path);
           _fileName = pickedFile.name;
         });
+        
+        SnackbarUtils.showSuccess(
+          title: 'File Selected',
+          message: _fileName,
+        );
       }
     } catch (e) {
       SnackbarUtils.showError(
         title: 'Error',
         message: 'Failed to pick from gallery: $e',
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSelectingFile = false;
+        });
+      }
     }
   }
 
   Future<void> _pickVideo() async {
+    setState(() {
+      _isSelectingFile = true;
+    });
+    
     try {
       final ImagePicker picker = ImagePicker();
       
@@ -131,16 +173,28 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
           _selectedFile = File(pickedFile.path);
           _fileName = pickedFile.name;
         });
+        
+        SnackbarUtils.showSuccess(
+          title: 'File Selected',
+          message: _fileName,
+        );
       }
     } catch (e) {
       SnackbarUtils.showError(
         title: 'Error',
         message: 'Failed to pick video: $e',
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSelectingFile = false;
+        });
+      }
     }
   }
 
   Future<void> _uploadFile() async {
+    
     if (_selectedFile == null || _fileName.isEmpty) {
       SnackbarUtils.showError(
         title: 'Error',
@@ -149,10 +203,73 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
       return;
     }
 
-    setState(() {
-      _isUploading = true;
-      _uploadProgress = 0.0;
-    });
+    // Check if file exists
+    if (!await _selectedFile!.exists()) {
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Selected file no longer exists',
+      );
+      return;
+    }
+
+    // Show upload progress dialog
+    double dialogProgress = 0.0;
+    String dialogStage = 'Preparing file...';
+    StateSetter? dialogSetState;
+    
+    Get.dialog(
+      StatefulBuilder(
+        builder: (context, setDialogState) {
+          dialogSetState = setDialogState;
+          return WillPopScope(
+            onWillPop: () async => false, // Prevent dismissing during upload
+            child: AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: const Text(
+                'Uploading File',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    dialogStage,
+                    style: const TextStyle(color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0, end: dialogProgress / 100),
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                    builder: (context, double value, child) {
+                      return LinearProgressIndicator(
+                        value: value,
+                        backgroundColor: Colors.grey[700],
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF34A853)),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0, end: dialogProgress),
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                    builder: (context, double value, child) {
+                      return Text(
+                        '${value.toStringAsFixed(1)}%',
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+      barrierDismissible: false,
+    );
 
     try {
       final fileModel = await _fileRepo.addFile(
@@ -160,28 +277,111 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
         originalName: _fileName,
         description: _description.isEmpty ? null : _description,
         onProgress: (progress) {
-          setState(() {
-            _uploadProgress = progress;
-          });
+          dialogProgress = progress;
+          
+          // Update stage message for smoother UX
+          if (progress < 10) {
+            dialogStage = 'Preparing file...';
+          } else if (progress < 40) {
+            dialogStage = 'Encrypting file...';
+          } else if (progress < 75) {
+            dialogStage = 'Saving locally...';
+          } else if (progress < 100) {
+            dialogStage = 'Uploading to SIA network...';
+          } else {
+            dialogStage = 'Upload complete!';
+          }
+          
+          // Update the dialog
+          if (dialogSetState != null) {
+            dialogSetState!(() {});
+          }
         },
       );
 
+      // Close progress dialog
+      if (Get.isDialogOpen == true) {
+        Get.back();
+      }
+      
       // Check if upload was successful
+      
       if (fileModel.id.isNotEmpty) {
+        // Check if file has sia-uploaded tag to confirm SIA upload
+        if (fileModel.tags.contains('sia-uploaded')) {
+          SnackbarUtils.showSuccess(
+            title: 'Upload Complete',
+            message: 'File uploaded successfully to SIA network',
+          );
+        } else if (fileModel.tags.contains('sia-upload-failed')) {
+          SnackbarUtils.showWarning(
+            title: 'Partial Upload',
+            message: 'File saved locally but SIA upload failed. Check SIA connection.',
+            duration: const Duration(seconds: 5),
+          );
+        }
         Get.back(result: _fileName);
       } else {
         throw Exception('Upload failed - no file model returned');
       }
     } catch (e) {
-      SnackbarUtils.showError(
-        title: 'Upload Failed',
-        message: 'Failed to upload file: $e',
-      );
+      // Close progress dialog on error
+      if (Get.isDialogOpen == true) {
+        Get.back();
+      }
+      
+      // Check error type and show appropriate message
+      final errorMessage = e.toString();
+      
+      if (errorMessage.contains('File is ') && errorMessage.contains('MB. Maximum upload size')) {
+        // Extract clean file size limit message
+        final match = RegExp(r'File is (\d+)MB\. Maximum upload size on (mobile|desktop) is (\d+)MB').firstMatch(errorMessage);
+        if (match != null) {
+          final fileSize = match.group(1);
+          final platform = match.group(2);
+          final maxSize = match.group(3);
+          
+          SnackbarUtils.showError(
+            title: 'File Too Large',
+            message: 'Your file is ${fileSize}MB. Maximum upload size on $platform is ${maxSize}MB.',
+            duration: const Duration(seconds: 5),
+          );
+        } else {
+          SnackbarUtils.showError(
+            title: 'File Too Large',
+            message: errorMessage.split('RenterdUploadException:').last.trim(),
+            duration: const Duration(seconds: 5),
+          );
+        }
+      } else if (errorMessage.contains('Out of Memory') || errorMessage.contains('Out of memory')) {
+        SnackbarUtils.showWarning(
+          title: 'Memory Error',
+          message: 'File too large for available memory. Try: 1) Close other apps, 2) Restart device, 3) Compress the file, or 4) Use desktop version.',
+          duration: const Duration(seconds: 7),
+        );
+      } else if (errorMessage.contains('SIA upload failed')) {
+        SnackbarUtils.showWarning(
+          title: 'Partial Upload',
+          message: 'File saved locally but could not upload to SIA. Check logs for details.',
+          duration: const Duration(seconds: 5),
+        );
+        // Still return success so vault reloads
+        Get.back(result: _fileName);
+      } else {
+        SnackbarUtils.showError(
+          title: 'Upload Failed',
+          message: 'Failed to upload file: $e',
+        );
+      }
     } finally {
+      // Ensure dialog is closed
+      if (Get.isDialogOpen == true) {
+        Get.back();
+      }
+      
       if (mounted) {
         setState(() {
           _isUploading = false;
-          _uploadProgress = 0.0;
         });
       }
     }
@@ -247,6 +447,42 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // File size limit banner
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF34A853).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF34A853).withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    color: Color(0xFF34A853),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      Platform.isAndroid || Platform.isIOS
+                          ? 'Maximum upload size: 200 MB'
+                          : 'Maximum upload size: 1 GB (1024 MB)',
+                      style: const TextStyle(
+                        color: Color(0xFF34A853),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const Text(
               'Select File',
               style: TextStyle(
@@ -256,8 +492,41 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            // Loading indicator during file selection
+            if (_isSelectingFile) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Column(
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF34A853)),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Loading File',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Please wait',
+                      style: TextStyle(color: Colors.grey, fontSize: 14),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             // Selected file display (if any)
-            if (_selectedFile != null) ...[
+            if (_selectedFile != null && !_isSelectingFile) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -322,7 +591,7 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
                   child: _buildSelectionButton(
                     icon: Icons.photo_library,
                     label: 'Photos',
-                    onTap: _isUploading ? null : _pickFromGallery,
+                    onTap: (_isUploading || _isSelectingFile) ? null : _pickFromGallery,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -330,7 +599,7 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
                   child: _buildSelectionButton(
                     icon: Icons.videocam,
                     label: 'Videos',
-                    onTap: _isUploading ? null : _pickVideo,
+                    onTap: (_isUploading || _isSelectingFile) ? null : _pickVideo,
                   ),
                 ),
               ],
@@ -339,7 +608,7 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
             _buildSelectionButton(
               icon: Icons.insert_drive_file,
               label: 'Browse Files',
-              onTap: _isUploading ? null : _pickFile,
+              onTap: (_isUploading || _isSelectingFile) ? null : _pickFile,
               fullWidth: true,
             ),
             const SizedBox(height: 32),
@@ -411,44 +680,8 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
               },
             ),
             const SizedBox(height: 32),
-            if (_isUploading) ...[
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      'Uploading and Encrypting...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Your file is being securely uploaded to SIA network',
-                      style: TextStyle(color: Colors.grey, fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    LinearProgressIndicator(
-                      value: _uploadProgress / 100,
-                      backgroundColor: Colors.grey[700],
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF34A853)),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${_uploadProgress.toStringAsFixed(0)}%',
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-            ] else ...[
+            // Upload button (progress shown in popup dialog)
+            if (!_isUploading) ...[
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(

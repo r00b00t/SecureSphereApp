@@ -4,12 +4,15 @@ import 'package:get/get.dart';
 import 'package:decvault/features/password/models/password_model.dart';
 import 'package:decvault/features/password/repositories/password_repository.dart';
 import 'package:decvault/features/password/screens/desktop_add_password_screen.dart';
+import 'package:decvault/features/password/screens/desktop_unified_breach_screen.dart';
 import 'package:decvault/features/auth/services/security_service.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
 import 'package:decvault/features/vault/models/file_model.dart';
 import 'package:decvault/features/vault/repositories/file_repository.dart';
 import 'package:decvault/common/widgets/custom_title_bar.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
+import 'package:decvault/features/subscription/services/revenuecat_service.dart';
 
 class DesktopHomeScreen extends StatefulWidget {
   const DesktopHomeScreen({super.key});
@@ -21,6 +24,8 @@ class DesktopHomeScreen extends StatefulWidget {
 class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindingObserver {
   final PasswordRepository _passwordRepo = Get.find();
   final FileRepository _fileRepo = Get.find();
+  AuthService? _authService;
+  RevenueCatService? _revenueCatService;
   
   List<PasswordModel> _passwords = [];
   List<PasswordModel> _filteredPasswords = [];
@@ -53,6 +58,7 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
     WidgetsBinding.instance.addObserver(this);
     _loadData();
     _setupKeyboardShortcuts();
+    _wireDependencies();
   }
 
   @override
@@ -75,6 +81,20 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
   void _setupKeyboardShortcuts() {
     // Set up keyboard shortcuts for desktop
     ServicesBinding.instance.keyboard.addHandler(_handleKeyEvent);
+  }
+
+  void _wireDependencies() {
+    try {
+      _authService = Get.find<AuthService>();
+    } catch (_) {
+      _authService = null;
+    }
+
+    try {
+      _revenueCatService = Get.find<RevenueCatService>();
+    } catch (_) {
+      _revenueCatService = null;
+    }
   }
 
   bool _handleKeyEvent(KeyEvent event) {
@@ -336,6 +356,7 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
+                _buildSectionHeader('Main'),
                 _buildNavItem(
                   icon: Icons.password,
                   label: 'Passwords',
@@ -345,39 +366,59 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                 ),
                 _buildNavItem(
                   icon: Icons.folder_special,
-                  label: 'Vault',
+                  label: 'File Vault',
                   id: 'vault',
                   isSelected: _selectedView == 'vault',
                   onTap: () => Get.toNamed('/vault'),
                 ),
                 _buildNavItem(
                   icon: Icons.vpn_key,
-                  label: 'Generator',
+                  label: 'Password Generator',
                   id: 'generator',
                   isSelected: _selectedView == 'generator',
                   onTap: () => Get.toNamed('/password-generator'),
                 ),
                 _buildNavItem(
                   icon: Icons.security,
-                  label: 'Breach Monitor',
+                  label: 'Breach Monitoring',
                   id: 'breach',
                   isSelected: _selectedView == 'breach',
-                  onTap: () => Get.toNamed('/breach-monitoring'),
+                  onTap: () => Get.to(() => const DesktopUnifiedBreachScreen()),
                 ),
-                const Divider(color: Color(0xFF3C4043), height: 24),
+                const SizedBox(height: 12),
+                const Divider(color: Color(0xFF3C4043), height: 32),
+                _buildSectionHeader('Advanced'),
                 _buildNavItem(
                   icon: Icons.backup,
-                  label: 'Backups',
-                  id: 'backups',
-                  isSelected: _selectedView == 'backups',
+                  label: 'Snapshots',
+                  id: 'snapshots',
+                  isSelected: false,
                   onTap: () => Get.toNamed('/backups'),
                 ),
+                _buildProNavItem(),
                 _buildNavItem(
                   icon: Icons.settings,
                   label: 'Settings',
                   id: 'settings',
                   isSelected: _selectedView == 'settings',
                   onTap: () => Get.toNamed('/settings'),
+                ),
+                _buildNavItem(
+                  icon: Icons.logout,
+                  label: 'Sign Out',
+                  id: 'signout',
+                  isSelected: false,
+                  onTap: _handleSignOut,
+                ),
+                _buildNavItem(
+                  icon: Icons.info_outline,
+                  label: 'About',
+                  id: 'about',
+                  isSelected: false,
+                  onTap: () => Get.toNamed(
+                    '/settings',
+                    arguments: {'initialCategory': 'about'},
+                  ),
                 ),
               ],
             ),
@@ -501,6 +542,100 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       ),
     );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          color: Colors.white.withOpacity(0.6),
+          fontSize: 12,
+          letterSpacing: 1.1,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProNavItem() {
+    final service = _revenueCatService;
+    if (service == null) {
+      return _buildNavItem(
+        icon: Icons.workspace_premium,
+        label: 'Upgrade to Pro',
+        id: 'upgrade',
+        isSelected: false,
+        onTap: () => Get.toNamed('/subscription'),
+      );
+    }
+
+    return Obx(() {
+      final isPro = service.isPro.value;
+      return _buildNavItem(
+        icon: isPro ? Icons.workspace_premium : Icons.star_outline,
+        label: isPro ? 'DecVault Pro' : 'Upgrade to Pro',
+        id: 'upgrade',
+        isSelected: false,
+        onTap: () {
+          if (isPro) {
+            Get.toNamed('/subscription');
+          } else {
+            service.presentPaywall();
+          }
+        },
+      );
+    });
+  }
+
+  Future<void> _handleSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1F1F1F),
+          title: Row(
+            children: const [
+              Icon(Icons.logout, color: Color(0xFF8E24AA)),
+              SizedBox(width: 8),
+              Text('Sign Out'),
+            ],
+          ),
+          content: const Text(
+            'Are you sure you want to sign out?\nYou will need your recovery phrase to access DecVault again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8E24AA),
+              ),
+              child: const Text('Sign Out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      if (_authService == null) {
+        throw Exception('Auth service unavailable');
+      }
+      await _authService!.logoutUser();
+      Get.offAllNamed('/auth');
+    } catch (e) {
+      SnackbarUtils.showError(
+        title: 'Error',
+        message: 'Failed to sign out. Please try again.',
+      );
+    }
   }
 
   Widget _buildMainContent() {

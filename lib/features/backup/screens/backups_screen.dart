@@ -31,7 +31,7 @@ class _BackupsScreenState extends State<BackupsScreen> {
     return Scaffold(
       drawer: const AppDrawer(),
       appBar: AppBar(
-        title: const Text('Backups'),
+        title: const Text('Snapshots'),
         elevation: 0,
         actions: [
           IconButton(
@@ -44,11 +44,11 @@ class _BackupsScreenState extends State<BackupsScreen> {
                   },
                 );
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Backup created and synced successfully')),
+                  SnackBar(content: Text('Snapshot created and synced successfully')),
                 );
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Failed to create backup: $e')),
+                  SnackBar(content: Text('Failed to create snapshot: $e')),
                 );
               }
             },
@@ -97,7 +97,7 @@ class _BackupsScreenState extends State<BackupsScreen> {
                   ),
                   const SizedBox(height: 24),
                   const Text(
-                    'No Backups Yet',
+                    'No Snapshots Yet',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -105,7 +105,7 @@ class _BackupsScreenState extends State<BackupsScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Protect your data by creating\nyour first backup',
+                    'Protect your data by creating\nyour first snapshot',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 16,
@@ -123,17 +123,17 @@ class _BackupsScreenState extends State<BackupsScreen> {
                           },
                         );
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Backup created and synced successfully')),
+                          const SnackBar(content: Text('Snapshot created and synced successfully')),
                         );
                       } catch (e) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to create backup: $e')),
+                          SnackBar(content: Text('Failed to create snapshot: $e')),
                         );
                       }
                     },
                     icon: const Icon(Icons.add, size: 24),
                     label: const Text(
-                      'Create Your First Backup',
+                      'Create Your First Snapshot',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -219,14 +219,14 @@ class _BackupsScreenState extends State<BackupsScreen> {
                          
                           if (backupPath == null) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Restore failed: backup path is null')),
+                              const SnackBar(content: Text('Restore failed: snapshot path is null')),
                             );
                             return;
                           }
                           try {
                             await backupService.restoreBackup(backupPath);
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Backup restored successfully')),
+                              const SnackBar(content: Text('Snapshot restored successfully')),
                             );
                           } catch (e) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -242,7 +242,7 @@ class _BackupsScreenState extends State<BackupsScreen> {
                             context: context,
                             builder: (context) => AlertDialog(
                               title: const Text('Confirm Delete'),
-                              content: const Text('Are you sure you want to delete this backup?'),
+                              content: const Text('Are you sure you want to delete this snapshot?'),
                               actions: [
                                 TextButton(
                                   onPressed: () => Navigator.of(context).pop(false),
@@ -259,7 +259,7 @@ class _BackupsScreenState extends State<BackupsScreen> {
                             try {
                               await backupService.deleteBackup(backup['path']);
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Backup deleted successfully')),
+                                const SnackBar(content: Text('Snapshot deleted successfully')),
                               );
                               _refreshBackups();
                             } catch (e) {

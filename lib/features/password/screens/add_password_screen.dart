@@ -459,24 +459,31 @@ class _AddPasswordScreenState extends State<AddPasswordScreen> {
         int breachCount = 0;
         bool breachCheckFailed = false;
         
-        try {
-          // Check password using the new breach API
-          final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordText)}');
+      try {
+        // Check password using the new breach API (GET request)
+        final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordText)}');
+        
+        final response = await http.get(url).timeout(Duration(seconds: 10));
+        
+        print('Breach check response status: ${response.statusCode}');
+        print('Breach check response body: ${response.body}');
+        
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final bool success = data['success'] ?? false;
+          breachCount = data['count'] ?? 0;
+          breached = breachCount > 0;
           
-          final response = await http.get(url).timeout(Duration(seconds: 10));
-          
-          
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            final bool success = data['success'] ?? false;
-            breachCount = data['count'] ?? 0;
-            breached = breachCount > 0;
-            
-          }
-        } catch (e) {
+          print('Breach check - success: $success, count: $breachCount, breached: $breached');
+        } else {
+          print('Breach check failed with status: ${response.statusCode}');
           breachCheckFailed = true;
-          // Continue with saving the password even if breach check fails
         }
+      } catch (e) {
+        print('Breach check error: $e');
+        breachCheckFailed = true;
+        // Continue with saving the password even if check fails
+      }
         // Show warnings if needed
         if (breached) {
           final result = await showDialog<bool>(

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -18,6 +19,7 @@ class FileRepository {
   FileRepository([this._renterdUploader]);
 
   Future<void> saveFile(FileModel file) async {
+    // Check if this is a new file or an update
     final existingFile = _box.get(file.id);
     final isNewFile = existingFile == null;
     
@@ -41,12 +43,14 @@ class FileRepository {
   Future<void> deleteFile(String id) async {
     final file = await getFileById(id);
     if (file != null) {
+      // Check if file exists in SIA vault and delete it
       if (file.tags.contains('sia-vault') || file.tags.contains('sia-uploaded') || file.tags.contains('sia-synced')) {
         if (_renterdUploader != null) {
           try {
             final filenameForSia = file.siaFilename ?? file.name;
             await _renterdUploader!.deleteFile(filenameForSia);
           } catch (e) {
+            // Continue with local deletion even if SIA deletion fails
           }
         }
       }
@@ -97,11 +101,13 @@ class FileRepository {
     Function(double progress)? onProgress,
   }) async {
     try {
-      
+      debugPrint('[FileRepository] Starting file upload: $originalName');
       onProgress?.call(5.0);
       
+      // Check file size and storage limit
       final size = await file.length();
       
+      // Check storage limit with StorageService
       try {
         final storageService = Get.find<StorageService>();
         
@@ -109,11 +115,11 @@ class FileRepository {
           await storageService.showStorageLimitDialog();
           throw Exception('Storage limit exceeded');
         }
-        
       } catch (e) {
         if (e.toString().contains('Storage limit exceeded')) {
           rethrow;
         }
+        // StorageService not available, continue without check
       }
       
       final id = _uuid.v4();
@@ -134,14 +140,18 @@ class FileRepository {
         uploadedAt: DateTime.now(),
         description: description,
         tags: tags,
-        isEncrypted: true,
+        isEncrypted: true, // Files are now encrypted by default
       );
 
       onProgress?.call(60.0);
       await saveFile(fileModel);
       onProgress?.call(70.0);
       
+      debugPrint('[FileRepository] File saved locally, checking SIA availability');
+      
+      // Check if SIA upload is available and upload automatically
       if (isSiaUploadAvailable) {
+        debugPrint('[FileRepository] Starting SIA upload');
         try {
           onProgress?.call(75.0);
           
@@ -155,14 +165,29 @@ class FileRepository {
           
           fileModel.tags = [...fileModel.tags, 'sia-uploaded'];
           await saveFile(fileModel);
+          
+          debugPrint('[FileRepository] SIA upload successful');
+          
         } catch (e) {
+          // SIA upload failed, but local upload succeeded
+          debugPrint('[FileRepository] SIA upload failed: $e');
+          
+          // Still save the file locally even if SIA upload failed
+          fileModel.tags = [...fileModel.tags, 'sia-upload-failed'];
+          await saveFile(fileModel);
+          
+          // Re-throw the error so the UI can show it
+          throw Exception('File uploaded locally but SIA upload failed: $e');
         }
+      } else {
       }
       
       onProgress?.call(100.0);
+      debugPrint('[FileRepository] Upload complete');
       return fileModel;
       
     } catch (e) {
+      debugPrint('[FileRepository] Upload error: $e');
       rethrow;
     }
   }
@@ -209,6 +234,19 @@ class FileRepository {
     }
 
     try {
+      // Check if file is too large for this device before starting download
+      final isMobile = Platform.isAndroid || Platform.isIOS;
+      final maxDownloadSize = isMobile ? 200 * 1024 * 1024 : 1024 * 1024 * 1024;
+      
+      if (file.size > maxDownloadSize) {
+        final sizeMB = (file.size / 1024 / 1024).toStringAsFixed(0);
+        final maxSizeMB = (maxDownloadSize / 1024 / 1024).toStringAsFixed(0);
+        throw Exception(
+          'File is ${sizeMB}MB. Maximum download size on ${isMobile ? "mobile" : "desktop"} is ${maxSizeMB}MB. '
+          '${isMobile ? "Please download this file on desktop instead." : "Try compressing the file first."}'
+        );
+      }
+      
       final filenameForSia = file.siaFilename ?? file.name;
       
       // Request storage permissions first
@@ -375,13 +413,16 @@ class FileRepository {
           status = await Permission.storage.request();
         }
         
+        // Also try manage external storage for broader access
         var manageStatus = await Permission.manageExternalStorage.status;
         if (!manageStatus.isGranted) {
+          // Note: This will open settings, user needs to manually grant
           manageStatus = await Permission.manageExternalStorage.request();
         }
               } else {
         }
     } catch (e) {
+      // Continue anyway, we have fallback options
     }
   }
 
@@ -400,7 +441,9 @@ class FileRepository {
     }
   }
 
-  /// Get files directly from SIA vault bucket
+  /// Get files directly from SIA vault bucket (actual vault contents)
+  /// 
+  /// IMPORTANT: When files are uploaded, their original size is embedded in the filename
   /// as a .origXXXXX suffix (e.g., "file_timestamp.ext.orig12345"). This is critical for
   /// cross-device decryption to work correctly, as the encryption key is derived from
   /// the original file size. Without extracting this size, decryption will fail when
@@ -494,6 +537,9 @@ class FileRepository {
   }
 
   /// Syncs files from SIA vault bucket to local storage
+  /// 
+  /// IMPORTANT: Extracts original file size from .origXXXXX suffix in SIA filename
+  /// to ensure correct decryption across devices. The encryption key depends on this size.
   Future<List<FileModel>> syncFromSiaBucket() async {
     if (_renterdUploader == null) {
       throw Exception('RenterdUploader not configured');

@@ -197,18 +197,23 @@ class EncryptionService {
   }
 
   /// Encrypts file content in memory (for streaming uploads)
+  /// Uses optimized approach for large files to reduce memory usage
   Future<EncryptedFileData> encryptFileContent(Uint8List fileBytes, String filename) async {
     try {
       final fileSize = fileBytes.length;
       
+      // For large files (>100MB), use direct binary encryption to save memory
+      // This avoids base64 encoding which adds 33% overhead
+      if (fileSize > 100 * 1024 * 1024) {
+        return await _encryptFileContentDirect(fileBytes, filename);
+      }
+      
+      // For smaller files, use traditional base64 approach for compatibility
       final key = await _generateFileKey(filename, fileSize);
-      
       final iv = IV.fromSecureRandom(_ivLength);
-      
       final encrypter = Encrypter(AES(Key(key)));
       
       final base64Data = base64Encode(fileBytes);
-      
       final encrypted = encrypter.encrypt(base64Data, iv: iv);
       
       return EncryptedFileData(
@@ -222,7 +227,34 @@ class EncryptionService {
     }
   }
 
+  /// Direct binary encryption for large files (>100MB) without base64 encoding
+  /// This significantly reduces memory usage for large files
+  Future<EncryptedFileData> _encryptFileContentDirect(Uint8List fileBytes, String filename) async {
+    try {
+      
+      final fileSize = fileBytes.length;
+      final key = await _generateFileKey(filename, fileSize);
+      final iv = IV.fromSecureRandom(_ivLength);
+      final encrypter = Encrypter(AES(Key(key), mode: AESMode.cbc, padding: 'PKCS7'));
+      
+      // Encrypt bytes directly without base64 encoding
+      // This saves 33% memory overhead
+      final encrypted = encrypter.encryptBytes(fileBytes, iv: iv);
+      
+      
+      return EncryptedFileData(
+        encryptedBytes: encrypted.bytes,
+        iv: iv.bytes,
+        originalSize: fileSize,
+        filename: filename,
+      );
+    } catch (e) {
+      throw Exception('Direct content encryption failed: $e');
+    }
+  }
+
   /// Decrypts file content in memory (for streaming downloads)
+  /// Supports both base64-encoded (legacy) and direct binary (optimized) encryption
   Future<Uint8List> decryptFileContent(
     Uint8List encryptedBytes,
     Uint8List iv,
@@ -232,14 +264,27 @@ class EncryptionService {
     try {
       
       final key = await _generateFileKey(filename, originalSize);
-      
       final ivObj = IV(iv);
-      final encrypter = Encrypter(AES(Key(key)));
       
-      // Create Encrypted object from bytes and decrypt
+      // Try direct binary decryption first (for large files)
+      // This is more memory efficient
+      try {
+        final encrypter = Encrypter(AES(Key(key), mode: AESMode.cbc, padding: 'PKCS7'));
+        final encryptedObj = Encrypted(encryptedBytes);
+        final decryptedList = encrypter.decryptBytes(encryptedObj, iv: ivObj);
+        final decryptedBytes = Uint8List.fromList(decryptedList);
+        
+        // Verify size matches
+        if (decryptedBytes.length == originalSize) {
+          return decryptedBytes;
+        }
+      } catch (e) {
+      }
+      
+      // Fallback to base64 decryption (for files encrypted with old method)
+      final encrypter = Encrypter(AES(Key(key)));
       final encryptedObj = Encrypted(encryptedBytes);
       final decrypted = encrypter.decrypt(encryptedObj, iv: ivObj);
-      
       
       // Decode the decrypted base64 data back to bytes
       final decryptedBytes = base64Decode(decrypted);

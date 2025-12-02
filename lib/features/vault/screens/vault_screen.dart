@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:cross_file/cross_file.dart';
 import 'dart:io';
 import '../models/file_model.dart';
 import '../repositories/file_repository.dart';
@@ -202,9 +201,18 @@ class _VaultScreenState extends State<VaultScreen> {
       if (_fileRepo.isSiaUploadAvailable) {
         final siaVaultFiles = await _fileRepo.getSiaVaultFiles();
         
+        // Also include locally uploaded files that failed SIA upload
+        final allFiles = await _fileRepo.getAllFiles();
+        final localFailedFiles = allFiles.where((file) => 
+          file.tags.contains('sia-upload-failed')
+        ).toList();
+        
+        // Combine SIA files and locally failed files
+        final combinedFiles = [...siaVaultFiles, ...localFailedFiles];
+        
         setState(() {
-          _files = siaVaultFiles;
-          _filteredFiles = List.from(siaVaultFiles);
+          _files = combinedFiles;
+          _filteredFiles = List.from(combinedFiles);
           _isLoading = false;
         });
       } else {
@@ -213,7 +221,8 @@ class _VaultScreenState extends State<VaultScreen> {
         final siaFiles = allFiles.where((file) => 
           file.tags.contains('sia-uploaded') ||
           file.tags.contains('sia-synced') ||
-          file.tags.contains('sia-vault')
+          file.tags.contains('sia-vault') ||
+          file.tags.contains('sia-upload-failed')
         ).toList();
         
         setState(() {
@@ -429,11 +438,25 @@ class _VaultScreenState extends State<VaultScreen> {
         Get.back();
       }
       
+      // Check error type and show appropriate message
+      final errorMessage = e.toString();
+      String title = 'Download Failed';
+      String message = 'Error downloading file: $e';
+      
+      if (errorMessage.contains('Out of Memory') || errorMessage.contains('Out of memory')) {
+        title = 'Memory Error';
+        message = 'File too large for available memory. Try: 1) Close other apps, 2) Restart device, 3) Download on desktop, 4) Free up storage.';
+      } else if (errorMessage.contains('No space left')) {
+        title = 'Storage Full';
+        message = 'Not enough storage space. Free up some space and try again.';
+      }
+      
       _safeShowSnackbar(
-        title: 'Download Error', 
-        message: 'Failed to download file: $e',
+        title: title,
+        message: message,
         backgroundColor: Colors.red.withValues(alpha: 0.8),
         colorText: Colors.white,
+        duration: const Duration(seconds: 6),
       );
     }
   }

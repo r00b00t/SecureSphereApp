@@ -348,9 +348,9 @@ class SecurityService extends GetxService {
   }
 
   // Auto-lock Methods
-  Future<void> setAutoLockTime(int minutes) async {
+  Future<void> setAutoLockTime(int seconds) async {
     try {
-      final settings = _securitySettings.value.copyWith(autoLockTimeMinutes: minutes);
+      final settings = _securitySettings.value.copyWith(autoLockTimeSeconds: seconds);
       _securitySettings.value = settings;
       await settings.save();
       
@@ -500,8 +500,10 @@ class SecurityService extends GetxService {
   
   // Helper method to get human-readable auto-lock time
   String get autoLockTimeString {
-    final minutes = _securitySettings.value.autoLockTimeMinutes;
-    if (minutes == 0) return 'Disabled';
+    final seconds = _securitySettings.value.autoLockTimeSeconds;
+    if (seconds == 0) return 'Disabled';
+    if (seconds < 60) return '$seconds seconds';
+    final minutes = seconds ~/ 60;
     if (minutes == 1) return '1 minute';
     if (minutes < 60) return '$minutes minutes';
     final hours = minutes ~/ 60;

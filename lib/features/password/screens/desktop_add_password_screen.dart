@@ -179,16 +179,25 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
       bool breachCheckFailed = false;
       
       try {
-        // Check password using the breach API
+        // Check password using the breach API (GET request)
         final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordText)}');
         final response = await http.get(url).timeout(const Duration(seconds: 10));
+        
+        print('Breach check response status: ${response.statusCode}');
+        print('Breach check response body: ${response.body}');
         
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           breachCount = data['count'] ?? 0;
           breached = breachCount > 0;
+          
+          print('Breach check - count: $breachCount, breached: $breached');
+        } else {
+          print('Breach check failed with status: ${response.statusCode}');
+          breachCheckFailed = true;
         }
       } catch (e) {
+        print('Breach check error: $e');
         breachCheckFailed = true;
         // Continue with saving even if breach check fails
       }

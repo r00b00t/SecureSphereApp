@@ -7,7 +7,6 @@ import 'package:decvault/features/vault/models/file_model.dart';
 import 'package:decvault/features/vault/repositories/file_repository.dart';
 import 'package:decvault/features/vault/screens/file_detail_screen.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:decvault/features/sia/services/sia_service.dart';
 import 'package:decvault/features/sia/screens/sia_password_required_screen.dart';
 import 'package:decvault/features/auth/services/security_service.dart';
@@ -35,6 +34,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   bool _sortAscending = true;
   FileModel? _selectedFile;
   bool _isUploading = false;
+  bool _isSelectingFile = false;
   double _uploadProgress = 0.0;
   String _uploadingFileName = '';
   String _selectedFileType = 'All Files'; // Filter by file type
@@ -162,10 +162,19 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
       if (_fileRepo.isSiaUploadAvailable) {
         final siaVaultFiles = await _fileRepo.getSiaVaultFiles();
         
+        // Also include locally uploaded files that failed SIA upload
+        final allFiles = await _fileRepo.getAllFiles();
+        final localFailedFiles = allFiles.where((file) => 
+          file.tags.contains('sia-upload-failed')
+        ).toList();
+        
+        // Combine SIA files and locally failed files
+        final combinedFiles = [...siaVaultFiles, ...localFailedFiles];
+        
         if (!mounted) return;
         setState(() {
-          _files = siaVaultFiles;
-          _filteredFiles = List.from(siaVaultFiles);
+          _files = combinedFiles;
+          _filteredFiles = List.from(combinedFiles);
           _isLoading = false;
         });
       } else {
@@ -175,7 +184,8 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         final siaFiles = allFiles.where((file) => 
           file.tags.contains('sia-uploaded') ||
           file.tags.contains('sia-synced') ||
-          file.tags.contains('sia-vault')
+          file.tags.contains('sia-vault') ||
+          file.tags.contains('sia-upload-failed')
         ).toList();
         
         if (!mounted) return;
@@ -377,7 +387,7 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
   }
 
   void _uploadFile() async {
-    if (_isUploading) return;
+    if (_isUploading || _isSelectingFile) return;
 
     // Mark user as active to prevent PIN dialog during file operations
     try {
@@ -390,13 +400,30 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
     final hasAccess = await _checkSiaConnectivity(action: 'upload files');
     if (!hasAccess) return;
 
+    setState(() {
+      _isSelectingFile = true;
+    });
+
     try {
+      // Show loading feedback
+      SnackbarUtils.showInfo(
+        title: 'Opening File Picker',
+        message: 'Please wait...',
+      );
+      
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.any,
+        withData: false, // Don't load file data immediately - much faster!
       );
     
       if (result != null && result.files.isNotEmpty) {
+        // Show success feedback
+        SnackbarUtils.showSuccess(
+          title: 'Files Selected',
+          message: '${result.files.length} file(s) selected',
+        );
+        
         for (var platformFile in result.files) {
           if (platformFile.path != null) {
             await _uploadSingleFile(File(platformFile.path!), platformFile.name);
@@ -408,6 +435,12 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         title: 'Error',
         message: 'Failed to select files: $e',
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSelectingFile = false;
+        });
+      }
     }
   }
 
@@ -440,10 +473,11 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
 
       SnackbarUtils.showSuccess(
         title: 'Success',
-        message: 'File uploaded successfully',
+        message: 'File uploaded successfully to SIA',
       );
 
-      _loadFiles();
+      // Reload files to show the newly uploaded file
+      await _loadFiles();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -452,10 +486,48 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         _uploadingFileName = '';
       });
 
-      SnackbarUtils.showError(
-        title: 'Error',
-        message: 'Failed to upload file: $e',
-      );
+      // Check error type and show appropriate message
+      final errorMessage = e.toString();
+      
+      if (errorMessage.contains('File is ') && errorMessage.contains('MB. Maximum upload size')) {
+        final match = RegExp(r'File is (\d+)MB\. Maximum upload size on (mobile|desktop) is (\d+)MB').firstMatch(errorMessage);
+        if (match != null) {
+          final fileSize = match.group(1);
+          final platform = match.group(2);
+          final maxSize = match.group(3);
+          
+          SnackbarUtils.showError(
+            title: 'File Too Large',
+            message: 'Your file is ${fileSize}MB. Maximum upload size on $platform is ${maxSize}MB.',
+            duration: const Duration(seconds: 5),
+          );
+        } else {
+          SnackbarUtils.showError(
+            title: 'File Too Large',
+            message: errorMessage.split('RenterdUploadException:').last.trim(),
+            duration: const Duration(seconds: 5),
+          );
+        }
+      } else if (errorMessage.contains('Out of Memory') || errorMessage.contains('Out of memory')) {
+        SnackbarUtils.showWarning(
+          title: 'Memory Warning',
+          message: 'File too large for available memory. Try closing other applications or compressing the file first.',
+          duration: const Duration(seconds: 6),
+        );
+      } else if (errorMessage.contains('SIA upload failed')) {
+        SnackbarUtils.showWarning(
+          title: 'Partial Upload',
+          message: 'File saved locally but could not upload to SIA network. Check SIA connection.',
+          duration: const Duration(seconds: 5),
+        );
+        // Still reload to show locally saved file
+        await _loadFiles();
+      } else {
+        SnackbarUtils.showError(
+          title: 'Upload Failed',
+          message: 'Failed to upload file: $e',
+        );
+      }
     }
   }
 
@@ -898,8 +970,8 @@ class _DesktopVaultScreenState extends State<DesktopVaultScreen> {
         final directory = Directory(filePath).existsSync() ? filePath : path.dirname(filePath);
         // Try different file managers
         Process.run('xdg-open', [directory]).catchError((_) {
-          Process.run('nautilus', [directory]).catchError((_) {
-            Process.run('dolphin', [directory]);
+          return Process.run('nautilus', [directory]).catchError((_) {
+            return Process.run('dolphin', [directory]);
           });
         });
       }

@@ -1922,22 +1922,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     
-    int currentMinutes;
+    int currentSeconds;
     try {
-      currentMinutes = securityService.securitySettings.autoLockTimeMinutes;
+      currentSeconds = securityService.securitySettings.autoLockTimeSeconds;
     } catch (e) {
-      currentMinutes = 5; // default
+      currentSeconds = 60; // default 1 minute
     }
     
     final options = [
-      {'label': 'Disabled', 'minutes': 0},
-      {'label': '1 minute', 'minutes': 1},
-      {'label': '2 minutes', 'minutes': 2},
-      {'label': '5 minutes', 'minutes': 5},
-      {'label': '10 minutes', 'minutes': 10},
-      {'label': '15 minutes', 'minutes': 15},
-      {'label': '30 minutes', 'minutes': 30},
-      {'label': '1 hour', 'minutes': 60},
+      {'label': 'Disabled', 'seconds': 0},
+      {'label': '30 seconds', 'seconds': 30},
+      {'label': '1 minute', 'seconds': 60},
+      {'label': '2 minutes', 'seconds': 120},
+      {'label': '5 minutes', 'seconds': 300},
+      {'label': '10 minutes', 'seconds': 600},
+      {'label': '15 minutes', 'seconds': 900},
+      {'label': '30 minutes', 'seconds': 1800},
+      {'label': '1 hour', 'seconds': 3600},
     ];
     
     final selectedOption = await Get.dialog<Map<String, dynamic>>(
@@ -1946,12 +1947,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: options.map((option) {
-            final isSelected = option['minutes'] == currentMinutes;
+            final isSelected = option['seconds'] == currentSeconds;
             return ListTile(
               title: Text(option['label'] as String),
               leading: Radio<int>(
-                value: option['minutes'] as int,
-                groupValue: currentMinutes,
+                value: option['seconds'] as int,
+                groupValue: currentSeconds,
                 onChanged: (_) => Get.back(result: option),
               ),
               selected: isSelected,
@@ -1970,7 +1971,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     if (selectedOption != null) {
       try {
-        await securityService.setAutoLockTime(selectedOption['minutes'] as int);
+        await securityService.setAutoLockTime(selectedOption['seconds'] as int);
         setState(() {});
         SnackbarUtils.showSuccess(title: 'Success', message: 'Auto-lock timer updated');
       } catch (e) {

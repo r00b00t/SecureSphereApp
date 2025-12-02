@@ -179,7 +179,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Success: Backup created and synced successfully'),
+            content: const Text('Success: Snapshot created and synced successfully'),
             backgroundColor: const Color(0xFF34A853),
             duration: const Duration(seconds: 3),
           ),
@@ -189,7 +189,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: Failed to create backup: $e'),
+            content: Text('Error: Failed to create snapshot: $e'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
           ),
@@ -209,7 +209,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Error: Restore failed - backup path is null'),
+            content: const Text('Error: Restore failed - snapshot path is null'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
           ),
@@ -223,18 +223,18 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Restore Backup', style: TextStyle(color: Colors.white)),
+        title: const Text('Restore Snapshot', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'This will replace all current data with the backup data. This action cannot be undone.',
+              'This will replace all current data with the snapshot data. This action cannot be undone.',
               style: TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 16),
             Text(
-              'Backup: ${backup['originalName'] ?? backup['name']}',
+              'Snapshot: ${backup['originalName'] ?? backup['name']}',
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
             ),
             Text(
@@ -266,7 +266,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Success: Backup restored successfully'),
+            content: const Text('Success: Snapshot restored successfully'),
             backgroundColor: const Color(0xFF34A853),
             duration: const Duration(seconds: 3),
           ),
@@ -285,8 +285,8 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
         if (errorMessage.contains('pad block') || 
             errorMessage.contains('decrypt') || 
             errorMessage.contains('Invalid argument')) {
-          userFriendlyMessage = 'Cannot restore this backup - it was created with a different account or seed phrase. '
-              'Backups can only be restored on the same account that created them.';
+          userFriendlyMessage = 'Cannot restore this snapshot - it was created with a different account or seed phrase. '
+              'Snapshots can only be restored on the same account that created them.';
         }
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -305,17 +305,17 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Delete Backup', style: TextStyle(color: Colors.white)),
+        title: const Text('Delete Snapshot', style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'Are you sure you want to delete this backup? This action cannot be undone.',
+              'Are you sure you want to delete this snapshot? This action cannot be undone.',
               style: TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 16),
             Text(
-              backup['originalName'] ?? backup['name'] ?? 'Unknown backup',
+              backup['originalName'] ?? backup['name'] ?? 'Unknown snapshot',
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
             ),
           ],
@@ -341,6 +341,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
   }
 
   Future<void> _deleteBackup(Map<String, dynamic> backup) async {
+    // Note: Implement delete functionality in BackupService if needed
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -437,7 +438,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Backups',
+                        'Snapshots',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -458,7 +459,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
             ),
           ),
           
-          // Create Backup Button
+          // Create Snapshot Button
           Padding(
             padding: const EdgeInsets.all(20),
             child: ElevatedButton.icon(
@@ -470,7 +471,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.add, size: 18),
-              label: Text(_isCreatingBackup ? 'Creating...' : 'Create Backup'),
+              label: Text(_isCreatingBackup ? 'Creating...' : 'Create Snapshot'),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 48),
                 backgroundColor: const Color(0xFF34A853),
@@ -496,7 +497,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _buildStatItem('Total Backups', _backups.length.toString()),
+                  _buildStatItem('Total Snapshots', _backups.length.toString()),
                   _buildStatItem('Encrypted', _backups.where((b) => b['isEncrypted'] == true).length.toString()),
                   _buildStatItem('Latest', _getLatestBackupDate()),
                 ],
@@ -658,7 +659,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
       child: Row(
         children: [
           const Text(
-            'Backup Management',
+            'Snapshot Management',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -675,7 +676,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
               focusNode: _searchFocusNode,
               onChanged: _filterBackups,
               decoration: InputDecoration(
-                hintText: 'Search backups... (Ctrl+F)',
+                hintText: 'Search snapshots... (Ctrl+F)',
                 prefixIcon: const Icon(Icons.search, size: 20),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
@@ -725,7 +726,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
           
           // Refresh Button
           Tooltip(
-            message: 'Refresh Backups (Ctrl+R)',
+            message: 'Refresh Snapshots (Ctrl+R)',
             child: IconButton(
               onPressed: _isLoading ? null : _loadBackups,
               icon: _isLoading 
@@ -740,9 +741,9 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
           
           const SizedBox(width: 8),
           
-          // Create Backup Button
+          // Create Snapshot Button
           Tooltip(
-            message: 'Create Backup (Ctrl+N)',
+            message: 'Create Snapshot (Ctrl+N)',
             child: ElevatedButton.icon(
               onPressed: _isCreatingBackup ? null : _createBackup,
               icon: _isCreatingBackup 
@@ -780,8 +781,8 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
             const SizedBox(height: 16),
             Text(
               _searchController.text.isNotEmpty
-                  ? 'No backups found'
-                  : 'No backups available',
+                  ? 'No snapshots found'
+                  : 'No snapshots available',
               style: const TextStyle(
                 fontSize: 18,
                 color: Colors.white60,
@@ -791,7 +792,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
             Text(
               _searchController.text.isNotEmpty
                   ? 'Try a different search term'
-                  : 'Create your first backup to get started',
+                  : 'Create your first snapshot to get started',
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.white.withOpacity(0.4),
@@ -802,7 +803,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
               ElevatedButton.icon(
                 onPressed: _createBackup,
                 icon: const Icon(Icons.add),
-                label: const Text('Create Your First Backup'),
+                label: const Text('Create Your First Snapshot'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF34A853),
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -875,7 +876,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        backup['originalName'] ?? backup['name'] ?? 'Unknown backup',
+                        backup['originalName'] ?? backup['name'] ?? 'Unknown snapshot',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -996,7 +997,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        backup['originalName'] ?? backup['name'] ?? 'Unknown backup',
+                        backup['originalName'] ?? backup['name'] ?? 'Unknown snapshot',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -1035,7 +1036,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                 children: [
                   _buildDetailRow('Created', _formatDate(backup['createdAt'] ?? backup['timestamp'])),
                   _buildDetailRow('Size', _formatFileSize(backup['size'])),
-                  _buildDetailRow('Type', backup['isEncrypted'] == true ? 'Encrypted Backup' : 'Standard Backup'),
+                  _buildDetailRow('Type', backup['isEncrypted'] == true ? 'Encrypted Snapshot' : 'Standard Snapshot'),
                   if (backup['path'] != null)
                     _buildDetailRow('Path', backup['path'].toString()),
                   
@@ -1045,7 +1046,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                   ElevatedButton.icon(
                     onPressed: () => _restoreBackup(backup),
                     icon: const Icon(Icons.restore),
-                    label: const Text('Restore Backup'),
+                    label: const Text('Restore Snapshot'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF34A853),
                       minimumSize: const Size(double.infinity, 40),
@@ -1057,7 +1058,7 @@ class _DesktopBackupsScreenState extends State<DesktopBackupsScreen> {
                   OutlinedButton.icon(
                     onPressed: () => _confirmDeleteBackup(backup),
                     icon: const Icon(Icons.delete),
-                    label: const Text('Delete Backup'),
+                    label: const Text('Delete Snapshot'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red,
                       side: const BorderSide(color: Colors.red),
