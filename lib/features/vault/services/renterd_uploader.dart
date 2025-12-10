@@ -8,6 +8,9 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../settings/services/settings_service.dart';
 import '../../auth/services/auth_service.dart';
+import '../../sia/services/sia_proxy_helper.dart';
+import '../../../config/api_config.dart';
+import '../../../core/utils/bucket_utils.dart';
 import 'encryption_service.dart';
 
 class RenterdUploader {
@@ -21,32 +24,27 @@ class RenterdUploader {
   RenterdUploader(this._settingsService, this._encryptionService);
 
   /// Get bucket name based on user configuration
-  /// - DecVault: user-specific bucket (user-vault-USERID) - S3 compliant naming
+  /// - DecVault: secure hashed bucket per user
   /// - Self-hosted: shared 'vault' bucket
   Future<String> _getBucketName() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
-      
       if (backupOption == 'DecVault') {
-        // Use user ID as bucket for DecVault (secure isolation)
         final authService = Get.find<AuthService>();
         final userId = await authService.getUserId();
         
-        
         if (userId != null && userId.isNotEmpty) {
-          final bucketName = 'user-vault-$userId'; // S3-compliant naming (hyphens, no underscores)
-          return bucketName;
+          return BucketUtils.getVaultBucketName(userId);
         } else {
           return 'vault';
         }
       } else {
-        // Self-hosted: use shared vault bucket
         return 'vault';
       }
     } catch (e) {
-      return 'vault'; // Fallback to default
+      return 'vault';
     }
   }
 
@@ -55,10 +53,11 @@ class RenterdUploader {
 
   /// Uploads a file to SIA renterd v2 with automatic encryption
   /// Returns the unique filename used in SIA for future reference
+  /// folderPath: Optional folder path within the bucket (e.g., "Documents/Work")
   Future<String> uploadFile(
     File file,
     String filename,
-    {Function(double progress)? onProgress}
+    {String? folderPath, Function(double progress)? onProgress}
   ) async {
     try {
       debugPrint('[RenterdUploader] Starting upload: $filename');
@@ -127,8 +126,13 @@ class RenterdUploader {
       // Embed original size in filename for instant decryption
       final sizeEmbeddedFilename = '${uniqueFilename}.orig${originalSize}';
       
-      debugPrint('[RenterdUploader] Starting SIA upload: $sizeEmbeddedFilename');
-      await _performSingleUpload(encryptedFile, sizeEmbeddedFilename, siaConfig, onProgress, isEncrypted: true, originalSize: originalSize);
+      // Build full path with folder if provided
+      final fullPath = folderPath != null && folderPath.isNotEmpty
+          ? '$folderPath/$sizeEmbeddedFilename'
+          : sizeEmbeddedFilename;
+      
+      debugPrint('[RenterdUploader] Starting SIA upload: $fullPath');
+      await _performSingleUpload(encryptedFile, fullPath, siaConfig, onProgress, isEncrypted: true, originalSize: originalSize);
       
       // Clean up temporary encrypted file
       await encryptedFile.delete();
@@ -137,7 +141,7 @@ class RenterdUploader {
       
       debugPrint('[RenterdUploader] Upload complete');
       
-      return sizeEmbeddedFilename;
+      return fullPath;
       
     } catch (e) {
       throw RenterdUploadException('Upload failed: $e');
@@ -372,14 +376,12 @@ class RenterdUploader {
         return;
       }
       
-      // For large files, use streaming upload with progress
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final bucketName = await _getBucketName();
-      final uploadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+      final uploadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
       
       final request = http.StreamedRequest('PUT', Uri.parse(uploadUrl));
-      request.headers['Content-Type'] = 'application/octet-stream';
-      request.headers['Authorization'] = 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}';
+      final proxyHeaders = await SiaProxyHelper.getProxyHeadersForUpload();
+      request.headers.addAll(proxyHeaders);
       request.headers['Content-Length'] = fileSize.toString();
       
       // Track progress
@@ -449,14 +451,9 @@ class RenterdUploader {
       
       final client = http.Client();
       
-      final headers = {
-        'Content-Type': 'application/octet-stream',
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
-      
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final bucketName = await _getBucketName();
-      final uploadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+      final uploadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
+      final headers = await SiaProxyHelper.getProxyHeadersForUpload();
       
       final response = await client
           .put(
@@ -561,13 +558,9 @@ class RenterdUploader {
       final client = http.Client();
       
       try {
-        final headers = {
-          'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-        };
-        
         final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-        final bucketName = await _getBucketName();
-        final deleteUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+        final deleteUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
+        final headers = await SiaProxyHelper.getProxyHeaders();
         
         final response = await client
             .delete(
@@ -601,13 +594,9 @@ class RenterdUploader {
     try {
       final client = http.Client();
       
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
-      
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final bucketName = await _getBucketName();
-      final downloadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+      final downloadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
+      final headers = await SiaProxyHelper.getProxyHeadersForDownload();
       
       // Extract original size from filename (embedded approach)
       final originalSizeFromFilename = _extractOriginalSizeFromFilename(filename);
@@ -881,18 +870,15 @@ class RenterdUploader {
     try {
       if (!isSupported) return false;
       
-      final siaConfig = await _settingsService.getSiaConfig();
-      if (siaConfig == null) return false;
+      if (!await SiaProxyHelper.isUserAuthenticated()) return false;
       
       final client = http.Client();
-      
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
+      final stateUrl = ApiConfig.siaProxyState;
+      final headers = await SiaProxyHelper.getProxyHeaders();
       
       final response = await client
           .get(
-            Uri.parse('${siaConfig.renterdUrl}/api/worker/state'),
+            Uri.parse(stateUrl),
             headers: headers,
           )
           .timeout(const Duration(seconds: 10));
@@ -913,28 +899,20 @@ class RenterdUploader {
   }
 
   /// Lists files in the SIA vault bucket
-  Future<List<Map<String, dynamic>>> listVaultFiles() async {
+  /// List files from a specific folder path (or root if folderPath is null)
+  Future<List<Map<String, dynamic>>> listVaultFiles({String? folderPath, bool includeAll = false}) async {
     try {
       if (!isSupported) {
         throw RenterdUploadException('SIA operations are not supported on web');
       }
       
-      final siaConfig = await _settingsService.getSiaConfig();
-      if (siaConfig == null) {
-        throw RenterdUploadException('SIA configuration not found');
-      }
-      
       final client = http.Client();
-      
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
-      
-      final bucketName = await _getBucketName();
+      final listUrl = ApiConfig.siaProxyList;
+      final headers = await SiaProxyHelper.getProxyHeaders();
       
       final response = await client
           .get(
-            Uri.parse('${siaConfig.renterdUrl}/api/bus/objects/?bucket=$bucketName'),
+            Uri.parse(listUrl),
             headers: headers,
           )
           .timeout(_timeout);
@@ -953,13 +931,49 @@ class RenterdUploader {
       
       final objects = responseData['objects'] as List<dynamic>? ?? [];
       
-      return objects.map((obj) => {
+      debugPrint('[RenterdUploader] Total objects from SIA: ${objects.length}');
+      debugPrint('[RenterdUploader] Filtering mode: ${includeAll ? "ALL FILES" : "folderPath: ${folderPath ?? "root"}"}');
+      
+      // Filter by folder path if provided
+      final filtered = objects.where((obj) {
+        final key = (obj['key'] as String? ?? '').startsWith('/')
+            ? (obj['key'] as String).substring(1)
+            : obj['key'] ?? '';
+        
+        // If includeAll is true, return all files (for folder extraction)
+        if (includeAll) {
+          debugPrint('[RenterdUploader] Including file: $key (includeAll=true)');
+          return true;
+        }
+        
+        debugPrint('[RenterdUploader] Checking file: $key');
+        
+        if (folderPath == null || folderPath.isEmpty) {
+          // Root level - exclude files with '/' in their path
+          final isRoot = !key.contains('/');
+          debugPrint('[RenterdUploader]   → Root check: $isRoot');
+          return isRoot;
+        } else {
+          // Check if file is in the specified folder (not in subfolders)
+          if (key.startsWith('$folderPath/')) {
+            final remainder = key.substring(folderPath.length + 1);
+            final isDirectChild = !remainder.contains('/'); // Ensure it's directly in this folder
+            debugPrint('[RenterdUploader]   → In folder $folderPath, direct child: $isDirectChild (remainder: $remainder)');
+            return isDirectChild;
+          }
+          debugPrint('[RenterdUploader]   → Not in folder $folderPath');
+          return false;
+        }
+      }).map((obj) => {
         'name': (obj['key'] as String? ?? '').startsWith('/')
             ? (obj['key'] as String).substring(1)
             : obj['key'] ?? '',
         'size': obj['size'] ?? 0,
         'modTime': obj['modTime'] ?? '',
       }).toList();
+      
+      debugPrint('[RenterdUploader] Filtered to ${filtered.length} files');
+      return filtered;
       
     } catch (e) {
       throw RenterdUploadException('List files failed: $e');
@@ -1031,19 +1045,14 @@ class RenterdUploader {
       
       final client = http.Client();
       
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-        'Content-Type': 'application/json',
-      };
-      
-      
-      // Use the correct API: POST /api/bus/buckets with name in JSON body
+      final bucketsUrl = ApiConfig.siaProxyBuckets;
+      final headers = await SiaProxyHelper.getProxyHeaders();
       final response = await client
           .post(
-            Uri.parse('${siaConfig.renterdUrl}/api/bus/buckets'),
+            Uri.parse(bucketsUrl),
             headers: headers,
             body: jsonEncode({
-              'name': bucketName,
+              'bucket': bucketName,
             }),
           )
           .timeout(_timeout);

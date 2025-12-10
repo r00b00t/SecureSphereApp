@@ -12,6 +12,9 @@ import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/features/vault/services/renterd_uploader.dart';
 import 'package:decvault/features/settings/services/settings_service.dart';
 import 'package:decvault/features/vault/services/encryption_service.dart';
+import 'package:decvault/features/sia/services/sia_proxy_helper.dart';
+import 'package:decvault/config/api_config.dart';
+import 'package:decvault/core/utils/bucket_utils.dart';
 
 class BackupService extends GetxService {
   Box? _backupBox;
@@ -62,32 +65,27 @@ class BackupService extends GetxService {
   }
 
   /// Get backup bucket name based on user configuration
-  /// - DecVault: user-specific backup bucket (user-backup-USERID)
+  /// - DecVault: secure hashed bucket per user
   /// - Self-hosted: shared 'securesphere-backup' bucket
   Future<String> _getBackupBucketName() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
-      
       if (backupOption == 'DecVault') {
-        // Use user ID as backup bucket for DecVault (secure isolation)
         final authService = Get.find<AuthService>();
         final userId = await authService.getUserId();
         
-        
         if (userId != null && userId.isNotEmpty) {
-          final bucketName = 'user-backup-$userId'; // S3-compliant naming
-          return bucketName;
+          return BucketUtils.getBackupBucketName(userId);
         } else {
           return 'securesphere-backup';
         }
       } else {
-        // Self-hosted: use shared securesphere-backup bucket
         return 'securesphere-backup';
       }
     } catch (e) {
-      return 'securesphere-backup'; // Fallback to default
+      return 'securesphere-backup';
     }
   }
   
@@ -237,25 +235,20 @@ class BackupService extends GetxService {
   /// Ensures the backup bucket exists in SIA using the correct API
   Future<void> _ensureBackupBucketExists(dynamic siaConfig, String bucketName) async {
     try {
-      // Skip bucket creation for default vault/securesphere-backup bucket if they exist
       if (bucketName == 'vault' || bucketName == 'securesphere-backup') {
+        return;
       }
       
       final client = http.Client();
+      final bucketsUrl = ApiConfig.siaProxyBuckets;
+      final headers = await SiaProxyHelper.getProxyHeaders();
       
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-        'Content-Type': 'application/json',
-      };
-      
-      
-      // Use the correct API: POST /api/bus/buckets with name in JSON body
       final response = await client
           .post(
-            Uri.parse('${siaConfig.renterdUrl}/api/bus/buckets'),
+            Uri.parse(bucketsUrl),
             headers: headers,
             body: jsonEncode({
-              'name': bucketName,
+              'bucket': bucketName,
             }),
           )
           .timeout(const Duration(seconds: 600));
@@ -263,7 +256,6 @@ class BackupService extends GetxService {
       client.close();
       
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Small delay to ensure bucket propagation
         await Future.delayed(const Duration(milliseconds: 500));
       } else if (response.statusCode == 409) {
       } else {
@@ -281,15 +273,9 @@ class BackupService extends GetxService {
       final bytes = await file.readAsBytes();
       
       final client = http.Client();
-      
-      final headers = {
-        'Content-Type': 'application/octet-stream',
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
-      
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final uploadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
-      
+      final uploadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
+      final headers = await SiaProxyHelper.getProxyHeadersForUpload();
       
       final response = await client
           .put(
@@ -372,16 +358,13 @@ class BackupService extends GetxService {
   /// List backup files from specific SIA bucket
   Future<List<Map<String, dynamic>>> _listBackupFilesFromBucket(dynamic siaConfig, String bucketName) async {
     try {
-      
       final client = http.Client();
-      
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
+      final listUrl = ApiConfig.siaProxyList;
+      final headers = await SiaProxyHelper.getProxyHeaders();
       
       final response = await client
           .get(
-            Uri.parse('${siaConfig.renterdUrl}/api/bus/objects/?bucket=$bucketName'),
+            Uri.parse(listUrl),
             headers: headers,
           )
           .timeout(const Duration(seconds: 600));
@@ -550,16 +533,10 @@ class BackupService extends GetxService {
   /// Download backup file from specific SIA bucket and decrypt it
   Future<Map<String, dynamic>> _downloadBackupFromSpecificBucket(String filename, dynamic siaConfig, String bucketName) async {
     try {
-      
       final client = http.Client();
-      
-      final headers = {
-        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
-      };
-      
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final downloadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
-      
+      final downloadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
+      final headers = await SiaProxyHelper.getProxyHeadersForDownload();
       
       final response = await client
           .get(

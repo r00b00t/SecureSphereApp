@@ -19,6 +19,7 @@ import 'package:decvault/features/subscription/services/storage_service.dart';
 import 'package:decvault/features/subscription/services/revenuecat_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
+import 'package:decvault/services/localization_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -367,17 +368,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Show confirmation dialog
     final confirmed = await Get.dialog<bool>(
       AlertDialog(
-        title: const Text('Remove PIN'),
-        content: const Text('Are you sure you want to remove your PIN? This will disable PIN-based app locking.'),
+        title: Text('remove_pin'.tr),
+        content: Text('remove_pin_confirm'.tr),
         actions: [
           TextButton(
             onPressed: () => Get.back(result: false),
-            child: const Text('Cancel'),
+            child: Text('cancel'.tr),
           ),
           TextButton(
             onPressed: () => Get.back(result: true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Remove'),
+            child: Text('remove'.tr),
           ),
         ],
       ),
@@ -457,14 +458,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                  child: Text('cancel'.tr),
                 ),
                 ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pop();
                     _showPinSetup();
                   },
-                  child: const Text('Create PIN'),
+                  child: Text('create_pin'.tr),
                 ),
               ],
             ),
@@ -565,7 +566,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       drawer: const AppDrawer(),
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Text('settings'.tr),
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -597,9 +598,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.account_circle, color: Color(0xFF1E8E3E)),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Account Information',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        Text(
+                          'account_information'.tr,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
@@ -608,15 +609,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       future: _authService.getUserId(),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Row(
+                          return Row(
                             children: [
-                              SizedBox(
+                              const SizedBox(
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               ),
-                              SizedBox(width: 12),
-                              Text('Loading user ID...'),
+                              const SizedBox(width: 12),
+                              Text('loading_user_id'.tr),
                             ],
                           );
                         }
@@ -637,9 +638,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 children: [
                                   const Icon(Icons.fingerprint, size: 20, color: Color(0xFF1E8E3E)),
                                   const SizedBox(width: 8),
-                                  const Text(
-                                    'User ID',
-                                    style: TextStyle(
+                                  Text(
+                                    'user_id'.tr,
+                                    style: const TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.grey,
@@ -652,19 +653,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       onPressed: () {
                                         Clipboard.setData(ClipboardData(text: userId));
                                         ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('User ID copied to clipboard'),
-                                            duration: Duration(seconds: 2),
+                                          SnackBar(
+                                            content: Text('user_id_copied'.tr),
+                                            duration: const Duration(seconds: 2),
                                           ),
                                         );
                                       },
-                                      tooltip: 'Copy User ID',
+                                      tooltip: 'copy_user_id'.tr,
                                     ),
                                 ],
                               ),
                               const SizedBox(height: 8),
                               SelectableText(
-                                userId ?? 'Not available',
+                                userId ?? 'not_available'.tr,
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontFamily: 'monospace',
@@ -674,7 +675,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               if (userId != null) ...[
                                 const SizedBox(height: 8),
                                 Text(
-                                  'This ID is used for subscription and storage tracking',
+                                  'user_id_description'.tr,
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey[400],
@@ -706,9 +707,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Icon(Icons.storage, color: storageService.getStorageStatusColor()),
                             const SizedBox(width: 8),
-                            const Text(
-                              'Storage Usage',
-                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            Text(
+                              'storage_usage'.tr,
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             const Spacer(),
                             GetX<RevenueCatService>(
@@ -722,7 +723,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
-                                    revenueCatService.isPro.value ? 'PRO' : 'FREE',
+                                    revenueCatService.isPro.value ? 'pro'.tr : 'free'.tr,
                                     style: const TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,
@@ -816,16 +817,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.backup, color: Color(0xFF4285F4)),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Backup Storage',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        Text(
+                          'backup_storage'.tr,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Choose your preferred backup storage option:',
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    Text(
+                      'backup_storage_description'.tr,
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
@@ -870,10 +871,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Icon(Icons.check_circle, color: Colors.green, size: 20),
                           const SizedBox(width: 8),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'DecVault uses decentralized servers with full encryption. No one has access to your data.',
-                              style: TextStyle(fontSize: 13),
+                              'decvault_description'.tr,
+                              style: const TextStyle(fontSize: 13),
                             ),
                           ),
                         ],
@@ -897,9 +898,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.security, color: Color(0xFF1E8E3E)),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Security & Privacy',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        Text(
+                          'security_privacy'.tr,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
@@ -908,10 +909,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Biometric Authentication
                     ListTile(
                       leading: const Icon(Icons.fingerprint, color: Color(0xFF1E8E3E)),
-                      title: const Text('Biometric Authentication'),
+                      title: Text('biometric_authentication'.tr),
                       subtitle: Text(_biometricsAvailable
-                          ? (_useBiometrics ? 'Enabled' : 'Disabled')
-                          : 'Not available on this device'),
+                          ? (_useBiometrics ? 'enabled'.tr : 'disabled'.tr)
+                          : 'not_available_on_device'.tr),
                       trailing: Switch(
                         value: _useBiometrics && _biometricsAvailable,
                         onChanged: _biometricsAvailable ? _toggleBiometrics : null,
@@ -926,8 +927,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         final hasPinSet = snapshot.data ?? false;
                         return ListTile(
                           leading: const Icon(Icons.pin, color: Color(0xFF1E8E3E)),
-                          title: Text(hasPinSet ? 'PIN Protection' : 'Set up PIN'),
-                          subtitle: Text(hasPinSet ? 'Active' : 'Add extra security layer'),
+                          title: Text(hasPinSet ? 'pin_protection'.tr : 'setup_pin'.tr),
+                          subtitle: Text(hasPinSet ? 'active'.tr : 'add_extra_security_layer'.tr),
                           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                           onTap: () => _showPinManagementDialog(hasPinSet),
                         );
@@ -942,8 +943,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         final hasPinSet = snapshot.data ?? false;
                         return ListTile(
                           leading: const Icon(Icons.timer, color: Color(0xFF1E8E3E)),
-                          title: const Text('Auto-lock Settings'),
-                          subtitle: Text(hasPinSet ? _getAutoLockTimeString() : 'Requires PIN setup'),
+                          title: Text('auto_lock_settings'.tr),
+                          subtitle: Text(hasPinSet ? _getAutoLockTimeString() : 'requires_pin_setup'.tr),
                           trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                           onTap: hasPinSet ? () => _showAutoLockDialog() : null,
                         );
@@ -954,8 +955,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Device Pairing with QR
                     ListTile(
                       leading: const Icon(Icons.qr_code_scanner, color: Color(0xFF1E8E3E)),
-                      title: const Text('Pair Device'),
-                      subtitle: const Text('Scan QR code to pair with desktop'),
+                      title: Text('pair_device'.tr),
+                      subtitle: Text('scan_qr_to_pair'.tr),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: _openQrScanner,
                     ),
@@ -977,9 +978,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.security, color: Color(0xFFF57C00)),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Recovery & Backup',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        Text(
+                          'recovery_backup'.tr,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
@@ -988,8 +989,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Seed Phrase Display
                     ListTile(
                       leading: const Icon(Icons.vpn_key, color: Color(0xFFF57C00)),
-                      title: const Text('Recovery Seed Phrase'),
-                      subtitle: const Text('View your recovery phrase'),
+                      title: Text('recovery_seed_phrase'.tr),
+                      subtitle: Text('view_recovery_phrase'.tr),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: () => _showSeedPhraseDialog(),
                     ),
@@ -1011,9 +1012,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.settings_applications, color: Color(0xFFDB4437)),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Advanced Settings',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        Text(
+                          'advanced_settings'.tr,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
@@ -1027,12 +1028,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // SIA Node Configuration
                     ListTile(
                       leading: const Icon(Icons.storage, color: Color(0xFFDB4437)),
-                      title: const Text('SIA Node Configuration'),
+                      title: Text('sia_node_configuration'.tr),
                       subtitle: Text(_selectedBackupOption == 'Self-Hosted SIA Node' 
-                          ? 'Self-hosted node configured' 
-                          : 'Use custom SIA node'),
+                          ? 'self_hosted_node_configured'.tr
+                          : 'use_custom_sia_node'.tr),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: () => _showSiaConfigurationDialog(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Language Settings Section
+            Card(
+              elevation: 2,
+              margin: const EdgeInsets.only(bottom: 24),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.language, color: Color(0xFF34A853)),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Language',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Choose your preferred language',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    GetX<LocalizationService>(
+                      builder: (localizationService) {
+                        return Column(
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.check_circle, color: Color(0xFF34A853)),
+                              title: const Text('English'),
+                              trailing: localizationService.isLanguageSelected('en')
+                                  ? const Icon(Icons.check, color: Color(0xFF34A853))
+                                  : null,
+                              onTap: () async {
+                                await localizationService.changeLanguage('en');
+                                SnackbarUtils.showSuccess(
+                                  title: 'Success',
+                                  message: 'Language changed to English',
+                                );
+                              },
+                            ),
+                            const Divider(),
+                            ListTile(
+                              leading: const Icon(Icons.check_circle, color: Color(0xFF34A853)),
+                              title: const Text('Français'),
+                              trailing: localizationService.isLanguageSelected('fr')
+                                  ? const Icon(Icons.check, color: Color(0xFF34A853))
+                                  : null,
+                              onTap: () async {
+                                await localizationService.changeLanguage('fr');
+                                SnackbarUtils.showSuccess(
+                                  title: 'Succès',
+                                  message: 'Langue changée en français',
+                                );
+                              },
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'language_auto_detect_info'.tr,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -1052,35 +1141,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.info_outline, color: Color(0xFF4285F4)),
                         const SizedBox(width: 8),
-                        const Text(
-                          'About DecVault',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        Text(
+                          'about_decvault'.tr,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
                     
                     // App Version
-                    const ListTile(
-                      leading: Icon(Icons.info, color: Color(0xFF4285F4)),
-                      title: Text('Version'),
-                      subtitle: Text('1.0.0'),
+                    ListTile(
+                      leading: const Icon(Icons.info, color: Color(0xFF4285F4)),
+                      title: Text('version'.tr),
+                      subtitle: const Text('1.0.0'),
                     ),
                     const Divider(),
                     
                     // Developer
-                    const ListTile(
-                      leading: Icon(Icons.person, color: Color(0xFF4285F4)),
-                      title: Text('Developer'),
-                      subtitle: Text('DecVault Team'),
+                    ListTile(
+                      leading: const Icon(Icons.person, color: Color(0xFF4285F4)),
+                      title: Text('developer'.tr),
+                      subtitle: Text('decvault_team'.tr),
                     ),
                     const Divider(),
                     
                     // Privacy Policy
                     ListTile(
                       leading: const Icon(Icons.privacy_tip, color: Color(0xFF4285F4)),
-                      title: const Text('Privacy Policy'),
-                      subtitle: const Text('View our privacy policy'),
+                      title: Text('privacy_policy'.tr),
+                      subtitle: Text('view_privacy_policy'.tr),
                       trailing: const Icon(Icons.open_in_new, size: 16),
                       onTap: () async {
                         final url = Uri.parse('https://decvault.com/privacy-policy');
@@ -1114,8 +1203,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Terms of Service
                     ListTile(
                       leading: const Icon(Icons.description, color: Color(0xFF4285F4)),
-                      title: const Text('Terms of Service'),
-                      subtitle: const Text('View our terms of service'),
+                      title: Text('terms_of_service'.tr),
+                      subtitle: Text('view_terms_of_service'.tr),
                       trailing: const Icon(Icons.open_in_new, size: 16),
                       onTap: () async {
                         final url = Uri.parse('https://decvault.com/terms');
@@ -1162,9 +1251,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.warning, color: Colors.red, size: 24),
                         const SizedBox(width: 8),
-                        const Text(
-                          'Delete Account',
-                          style: TextStyle(
+                        Text(
+                          'delete_account'.tr,
+                          style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: Colors.red,
@@ -1184,18 +1273,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Danger Zone',
-                            style: TextStyle(
+                          Text(
+                            'danger_zone'.tr,
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                               color: Colors.red,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Permanently delete your account and all associated data. This action cannot be undone.',
-                            style: TextStyle(
+                          Text(
+                            'delete_account_description'.tr,
+                            style: const TextStyle(
                               fontSize: 13,
                               color: Colors.grey,
                             ),
@@ -1206,7 +1295,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: ElevatedButton.icon(
                               onPressed: () => _showDeleteAccountDialog(),
                               icon: const Icon(Icons.delete_forever, size: 18),
-                              label: const Text('Delete Account'),
+                              label: Text('delete_account'.tr),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.red,
                                 foregroundColor: Colors.white,
@@ -1473,6 +1562,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final headers = {
         'Content-Type': 'application/json',
         'api-key': ApiConfig.psqlApiKey,
+        'user-id': userId,
       };
       
       // Debug logging
@@ -1626,7 +1716,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Show PIN change dialog
       await Get.dialog(
         AlertDialog(
-          title: const Text('PIN Management'),
+          title: Text('pin_management'.tr),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1685,15 +1775,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Get.back();
                 await _removePin();
               },
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('Remove PIN'),
-            ),
-            ElevatedButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text('remove_pin'.tr),
+          ),
+          ElevatedButton(
               onPressed: () async {
                 Get.back();
                 await _changePin();
               },
-              child: const Text('Update PIN'),
+              child: Text('update_pin'.tr),
             ),
           ],
         ),
@@ -1713,7 +1803,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     await Get.dialog(
       AlertDialog(
-        title: const Text('Auto-lock Settings'),
+        title: Text('auto_lock_settings'.tr),
         content: FutureBuilder<bool>(
           future: _getLockOnAppCloseStatus(),
           builder: (context, lockSnapshot) {
@@ -1723,7 +1813,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.schedule),
-                  title: const Text('Auto-lock after'),
+                  title: Text('auto_lock_after'.tr),
                   subtitle: Text(_getAutoLockTimeString()),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () {
@@ -1733,8 +1823,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(),
                 SwitchListTile(
-                  title: const Text('Lock when app closes'),
-                  subtitle: const Text('Require PIN when reopening the app'),
+                  title: Text('lock_when_app_closes'.tr),
+                  subtitle: Text('require_pin_on_reopen'.tr),
                   value: lockOnClose,
                   onChanged: (value) async {
                     final securityService = _securityService;
@@ -1752,7 +1842,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Get.back(),
-            child: const Text('Close'),
+            child: Text('close'.tr),
           ),
         ],
       ),
@@ -1766,7 +1856,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('SIA Node Configuration'),
+            title: Text('sia_node_configuration'.tr),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,

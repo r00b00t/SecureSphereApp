@@ -83,11 +83,10 @@ class SiaService extends GetxService {
     final hasBackendConfig = await _checkIfUserHasBackendConfig();
     
     if (backupOption == 'DecVault') {
-      // Use DecVault config from ApiConfig (respect user's choice)
       _currentConfig = SiaNodeConfig(
-        host: ApiConfig.SSip,
-        port: ApiConfig.SSport, 
-        password: ApiConfig.SSpass,
+        host: ApiConfig.psqlBaseUrl,
+        port: '',
+        password: '',
         isDecVaultManagedNode: true,
       );
     } else if (backupOption == 'Self-Hosted SIA Node') {
@@ -100,12 +99,11 @@ class SiaService extends GetxService {
         await prefs.setString('backupOption', 'Self-Hosted SIA Node');
         await _loadCustomConfigFromBackend();
       } else {
-        // Default to DecVault
         await prefs.setString('backupOption', 'DecVault');
         _currentConfig = SiaNodeConfig(
-          host: ApiConfig.SSip,
-          port: ApiConfig.SSport, 
-          password: ApiConfig.SSpass,
+          host: ApiConfig.psqlBaseUrl,
+          port: '',
+          password: '',
           isDecVaultManagedNode: true,
         );
       }
@@ -126,6 +124,7 @@ class SiaService extends GetxService {
       final headers = {
         'Content-Type': 'application/json',
         'api-key': ApiConfig.psqlApiKey,
+        'user-id': userId,
       };
 
       final response = await http.get(url, headers: headers);
@@ -158,6 +157,7 @@ class SiaService extends GetxService {
       final headers = {
         'Content-Type': 'application/json',
         'api-key': ApiConfig.psqlApiKey,
+        'user-id': userId,
       };
 
 
@@ -235,6 +235,7 @@ class SiaService extends GetxService {
       final headers = {
         'Content-Type': 'application/json',
         'api-key': ApiConfig.psqlApiKey,
+        'user-id': userId, // ✅ REQUIRED by backend
       };
       final payload = {
         'uuid': userId,  // Backend expects lowercase 'uuid'
