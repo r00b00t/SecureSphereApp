@@ -17,6 +17,7 @@ import 'package:decvault/features/subscription/services/storage_service.dart';
 import 'package:decvault/features/subscription/services/revenuecat_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
+import 'package:decvault/services/localization_service.dart';
 
 class DesktopSettingsScreen extends StatefulWidget {
   const DesktopSettingsScreen({super.key});
@@ -170,7 +171,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
               backgroundColor: const Color(0xFF8E24AA),
               foregroundColor: Colors.white,
             ),
-            child: const Text('Sign Out'),
+            child: Text('sign_out'.tr),
           ),
         ],
       ),
@@ -450,7 +451,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
             child: TextButton.icon(
               onPressed: _showLogoutDialog,
               icon: const Icon(Icons.logout, size: 16, color: Color(0xFF8E24AA)),
-              label: const Text('Sign Out'),
+              label: Text('sign_out'.tr),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF8E24AA),
                 minimumSize: const Size(double.infinity, 36),
@@ -466,7 +467,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
             child: TextButton.icon(
               onPressed: () => Get.offNamed('/home'),
               icon: const Icon(Icons.arrow_back, size: 16),
-              label: const Text('Back to Home'),
+              label: Text('back_to_home'.tr),
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white70,
                 minimumSize: const Size(double.infinity, 36),
@@ -499,8 +500,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Security Settings',
+          Text(
+            'security_settings'.tr,
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -515,8 +516,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
             icon: Icons.pin,
             children: [
               ListTile(
-                title: const Text('Change PIN'),
-                subtitle: const Text('Update your security PIN'),
+                title: Text('change_pin'.tr),
+                subtitle: Text('update_security_pin'.tr),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Get.to(() => const PinSetupScreen());
@@ -552,14 +553,14 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.timer),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 30, child: Text('30 seconds')),
-                        DropdownMenuItem(value: 60, child: Text('1 minute')),
-                        DropdownMenuItem(value: 120, child: Text('2 minutes')),
-                        DropdownMenuItem(value: 300, child: Text('5 minutes')),
-                        DropdownMenuItem(value: 600, child: Text('10 minutes')),
-                        DropdownMenuItem(value: 1800, child: Text('30 minutes')),
-                        DropdownMenuItem(value: 0, child: Text('Never (Disabled)')),
+                      items: [
+                        DropdownMenuItem(value: 30, child: Text('30_seconds'.tr)),
+                        DropdownMenuItem(value: 60, child: Text('1_minute'.tr)),
+                        DropdownMenuItem(value: 120, child: Text('2_minutes'.tr)),
+                        DropdownMenuItem(value: 300, child: Text('5_minutes'.tr)),
+                        DropdownMenuItem(value: 600, child: Text('10_minutes'.tr)),
+                        DropdownMenuItem(value: 1800, child: Text('30_minutes'.tr)),
+                        DropdownMenuItem(value: 0, child: Text('never_disabled'.tr)),
                       ],
                       onChanged: (value) async {
                         if (value != null && _securityService != null) {
@@ -606,8 +607,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
               icon: Icons.fingerprint,
               children: [
                 SwitchListTile(
-                  title: const Text('Enable Biometrics'),
-                  subtitle: const Text('Use fingerprint or face recognition'),
+                  title: Text('enable_biometrics'.tr),
+                  subtitle: Text('use_fingerprint_face'.tr),
                   value: _useBiometrics,
                   onChanged: (value) async {
                     if (_securityService != null) {
@@ -631,8 +632,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
             icon: Icons.key,
             children: [
               ListTile(
-                title: const Text('View Seed Phrase'),
-                subtitle: const Text('Show your recovery phrase'),
+                title: Text('view_seed_phrase'.tr),
+                subtitle: Text('show_recovery_phrase'.tr),
                 trailing: const Icon(Icons.visibility),
                 onTap: () {
                   _showSeedPhraseDialog();
@@ -678,8 +679,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                     
                     // DecVault Option
                     RadioListTile<String>(
-                      title: const Text('DecVault Decentralized Server'),
-                      subtitle: const Text('Use our managed SIA node (recommended)'),
+                      title: Text('decvault_decentralized_server'.tr),
+                      subtitle: Text('use_managed_sia_node'.tr),
                       value: 'DecVault',
                       groupValue: _selectedBackupOption,
                       onChanged: (value) async {
@@ -698,8 +699,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                     
                     // Self-hosted Option
                     RadioListTile<String>(
-                      title: const Text('Self-Hosted SIA Node'),
-                      subtitle: const Text('Use your own SIA node'),
+                      title: Text('self_hosted_sia_node'.tr),
+                      subtitle: Text('use_own_sia_node'.tr),
                       value: 'Self-Hosted SIA Node',
                       groupValue: _selectedBackupOption,
                       onChanged: (value) async {
@@ -784,7 +785,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                 const Divider(),
                 ListTile(
                   title: Text(_siaConnected ? 'Connected' : 'Test & Save Connection'),
-                  subtitle: const Text('Test and save your SIA node configuration'),
+                  subtitle: Text('test_save_sia_config'.tr),
                   trailing: _siaConnecting 
                       ? const SizedBox(
                           width: 20, 
@@ -797,8 +798,8 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                 if (_siaConnected) ...[
                   const Divider(),
                   ListTile(
-                    title: const Text('Disconnect'),
-                    subtitle: const Text('Disconnect from current SIA node'),
+                    title: Text('disconnect'.tr),
+                    subtitle: Text('disconnect_from_sia'.tr),
                     trailing: const Icon(Icons.link_off),
                     onTap: _disconnectSia,
                   ),
@@ -953,6 +954,86 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                 },
               ),
             ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Language Settings Card
+          GetX<LocalizationService>(
+            builder: (localizationService) {
+              return _buildSettingsCard(
+                title: 'Language',
+                icon: Icons.language,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Choose your preferred language',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ListTile(
+                          leading: const Icon(Icons.language, color: Color(0xFF34A853)),
+                          title: const Text('English'),
+                          trailing: localizationService.isLanguageSelected('en')
+                              ? const Icon(Icons.check_circle, color: Color(0xFF34A853))
+                              : null,
+                          onTap: () async {
+                            await localizationService.changeLanguage('en');
+                            SnackbarUtils.showSuccess(
+                              title: 'Success',
+                              message: 'Language changed to English',
+                            );
+                          },
+                        ),
+                        const Divider(),
+                        ListTile(
+                          leading: const Icon(Icons.language, color: Color(0xFF34A853)),
+                          title: const Text('Français'),
+                          trailing: localizationService.isLanguageSelected('fr')
+                              ? const Icon(Icons.check_circle, color: Color(0xFF34A853))
+                              : null,
+                          onTap: () async {
+                            await localizationService.changeLanguage('fr');
+                            SnackbarUtils.showSuccess(
+                              title: 'Succès',
+                              message: 'Langue changée en français',
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'The app will automatically detect your device language on first launch.',
+                                  style: TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           
           const SizedBox(height: 16),
@@ -1346,7 +1427,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       if (success) {
         // Test connection to SIA node
         final authHeader = 'Basic ' + base64Encode(utf8.encode(':$password'));
-        final url = 'http://$host:$port${ApiConfig.siaWorkerStatePath}';
+        final url = 'http://$host:$port/api/worker/state';
         
         final response = await http.get(Uri.parse(url), headers: {'Authorization': authHeader});
         

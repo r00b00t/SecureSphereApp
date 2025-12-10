@@ -502,12 +502,11 @@ class SiaService extends GetxService {
       };
     }
     
-    // Fallback to DecVault
-    
+    // Fallback to DecVault (using proxy)
     return {
-      'host': ApiConfig.SSip,
-      'port': ApiConfig.SSport,
-      'password': ApiConfig.SSpass,
+      'host': ApiConfig.psqlBaseUrl,
+      'port': '',
+      'password': '',
     };
   }
 

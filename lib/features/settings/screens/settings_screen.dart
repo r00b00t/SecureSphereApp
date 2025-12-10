@@ -1473,7 +1473,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       // Test connection to SIA node
       final authHeader = 'Basic ' + base64Encode(utf8.encode(':$password'));
-      final url = 'http://$host:$port${ApiConfig.siaWorkerStatePath}';
+      final url = 'http://$host:$port/api/worker/state';
       
       final response = await http.get(Uri.parse(url), headers: {'Authorization': authHeader});
       
@@ -1658,11 +1658,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final backupOption = prefs.getString('backupOption') ?? 'DecVault';
       
       if (backupOption == 'DecVault') {
-        // Use DecVault config from api_config.dart (but hide password in settings)
+        // DecVault managed node - no config shown in settings
         return {
-          'host': ApiConfig.SSip,
-          'port': ApiConfig.SSport,
-          'password': '', // Never show DecVault password in settings
+          'host': '',
+          'port': '',
+          'password': '',
         };
       } else {
         // Get self-hosted config from backend
