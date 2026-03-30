@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/config/api_config.dart';
+import 'package:decvault/features/decentralized/services/decentralized_service.dart';
 
 /// Storage Service for tracking file vault storage usage
 /// Free users: 10GB limit
@@ -40,6 +42,12 @@ class StorageService extends GetxController {
   }
   
   Future<void> _initialize() async {
+    // Path A: no storage limits — skip all backend tracking
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) return;
+    } catch (_) {}
+
     try {
       // Get RevenueCat service
       _revenueCatService = Get.find<RevenueCatService>();
@@ -72,9 +80,9 @@ class StorageService extends GetxController {
       
       // Listen to subscription changes
       ever(_revenueCatService!.isPro, (_) => _updateStorageLimit());
-      
+
     } catch (e) {
-      rethrow;
+      // ignore
     }
   }
   
@@ -88,12 +96,12 @@ class StorageService extends GetxController {
     if (!enableBackendSync || _userId == null) {
       return;
     }
-    
+
     try {
-      
+      final authHeaders = await Get.find<AuthService>().getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.psqlBaseUrl}/api/storage/usage/$_userId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: authHeaders,
       ).timeout(const Duration(seconds: 10));
       
       if (response.statusCode == 200) {
@@ -148,6 +156,12 @@ class StorageService extends GetxController {
   
   /// Add file size to current usage
   Future<bool> addFileSize(int sizeInBytes, {String? fileId, String? fileName}) async {
+    // Path A: no storage limits — skip tracking entirely
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) return true;
+    } catch (_) {}
+
     // Check if adding this file would exceed the limit
     if (!canUploadFile(sizeInBytes)) {
       return false;
@@ -172,9 +186,10 @@ class StorageService extends GetxController {
   /// Add file size to backend
   Future<void> _addFileSizeToBackend(String fileId, int sizeInBytes, String? fileName) async {
     try {
+      final authHeaders = await Get.find<AuthService>().getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.psqlBaseUrl}/api/storage/add'),
-        headers: {'Content-Type': 'application/json'},
+        headers: authHeaders,
         body: jsonEncode({
           'userId': _userId,
           'fileId': fileId,
@@ -215,9 +230,10 @@ class StorageService extends GetxController {
   /// Remove file size from backend
   Future<void> _removeFileSizeFromBackend(String fileId) async {
     try {
+      final authHeaders = await Get.find<AuthService>().getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.psqlBaseUrl}/api/storage/remove'),
-        headers: {'Content-Type': 'application/json'},
+        headers: authHeaders,
         body: jsonEncode({
           'userId': _userId,
           'fileId': fileId,
@@ -235,12 +251,18 @@ class StorageService extends GetxController {
   
   /// Check if a file can be uploaded without exceeding limit
   bool canUploadFile(int fileSizeInBytes) {
+    // Path A: no storage limits
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) return true;
+    } catch (_) {}
+
     final newTotal = currentUsage.value + fileSizeInBytes;
     final canUpload = newTotal <= storageLimit.value;
-    
+
     if (!canUpload) {
     }
-    
+
     return canUpload;
   }
   
@@ -327,9 +349,10 @@ class StorageService extends GetxController {
   /// Recalculate storage on backend
   Future<void> _recalculateOnBackend(List<Map<String, dynamic>> files) async {
     try {
+      final authHeaders = await Get.find<AuthService>().getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.psqlBaseUrl}/api/storage/recalculate'),
-        headers: {'Content-Type': 'application/json'},
+        headers: authHeaders,
         body: jsonEncode({
           'userId': _userId,
           'files': files,

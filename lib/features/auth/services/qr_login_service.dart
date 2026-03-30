@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:get/get.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:decvault/config/api_config.dart';
 import 'package:decvault/features/auth/services/auth_service.dart';
+import 'package:decvault/core/network/authenticated_client.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
 
 class QrLoginService extends GetxService {
@@ -137,17 +137,13 @@ class QrLoginService extends GetxService {
   Future<bool> _registerQrSession(String sessionId) async {
     try {
       final url = Uri.parse('${ApiConfig.psqlBaseUrl}/qr-auth/create-session');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': ApiConfig.psqlApiKey,
-        },
-        body: jsonEncode({
-          'session_id': sessionId,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final headers = await _authService.getAuthHeaders();
+      final response = await Get.find<AuthenticatedClient>()
+          .post(url, headers: headers, body: jsonEncode({
+            'session_id': sessionId,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          }))
+          .timeout(const Duration(seconds: 10));
       
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
@@ -164,20 +160,16 @@ class QrLoginService extends GetxService {
   ) async {
     try {
       final url = Uri.parse('${ApiConfig.psqlBaseUrl}/qr-auth/authenticate');
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': ApiConfig.psqlApiKey,
-        },
-        body: jsonEncode({
-          'session_id': sessionId,
-          'user_id': userId,
-          'public_key': publicKey,
-          'seed_phrase': seedPhrase, // Include seed phrase for backup decryption
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final headers = await _authService.getAuthHeaders();
+      final response = await Get.find<AuthenticatedClient>()
+          .post(url, headers: headers, body: jsonEncode({
+            'session_id': sessionId,
+            'user_id': userId,
+            'public_key': publicKey,
+            'seed_phrase': seedPhrase,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          }))
+          .timeout(const Duration(seconds: 10));
       
       return response.statusCode == 200 || response.statusCode == 201;
     } catch (e) {
@@ -205,13 +197,10 @@ class QrLoginService extends GetxService {
       final url = Uri.parse(
         '${ApiConfig.psqlBaseUrl}/qr-auth/check-status/$_currentSessionId',
       );
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': ApiConfig.psqlApiKey,
-        },
-      ).timeout(const Duration(seconds: 5));
+      final headers = await _authService.getAuthHeaders();
+      final response = await Get.find<AuthenticatedClient>()
+          .get(url, headers: headers)
+          .timeout(const Duration(seconds: 5));
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);

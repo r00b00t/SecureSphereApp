@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:decvault/features/auth/services/auth_service.dart';
-import 'package:decvault/features/auth/services/security_service.dart';
-import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
 import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:decvault/features/decentralized/services/decentralized_service.dart';
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -213,6 +212,12 @@ class AppDrawer extends StatelessWidget {
   }
 
   Widget _buildSubscriptionItem(BuildContext context) {
+    // Path A: no subscription needed
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) return const SizedBox.shrink();
+    } catch (_) {}
+
     try {
       final revenueCatService = Get.find<RevenueCatService>();
       

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
 import 'dart:io';
 import '../models/file_model.dart';
 import '../repositories/file_repository.dart';
@@ -27,6 +28,7 @@ class _VaultScreenState extends State<VaultScreen> {
   bool _isLoading = true;
   bool _isSyncing = false;
   bool _isPasswordMissing = false;
+  String? _nodeNotConfiguredMessage;
   final TextEditingController _searchController = TextEditingController();
   String _sortBy = 'date';
   bool _sortAscending = false;
@@ -37,62 +39,11 @@ class _VaultScreenState extends State<VaultScreen> {
     _checkInitialSiaAccess();
   }
 
-  /// Safely shows a snackbar using ScaffoldMessenger
-  void _safeShowSnackbar({
-    required String title,
-    required String message,
-    Color? backgroundColor,
-    Color? colorText,
-    Duration? duration,
-  }) {
-    if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        
-        try {
-          // Use ScaffoldMessenger which is more reliable than Get.snackbar
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: colorText ?? Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      message,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colorText ?? Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-                backgroundColor: backgroundColor ?? const Color(0xFF34A853).withValues(alpha: 0.8),
-                duration: duration ?? const Duration(seconds: 3),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        } catch (e) {
-          // Silent fail - better than crashing the app
-        }
-      });
-    }
-  }
-
   Future<void> _checkInitialSiaAccess() async {
     // Check if SIA password is missing for display purposes
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
+      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
       
       if (backupOption == 'Self-Hosted SIA Node') {
         final siaService = Get.find<SiaService>();
@@ -116,6 +67,8 @@ class _VaultScreenState extends State<VaultScreen> {
     final hasAccess = await _checkSiaConnectivity();
     if (hasAccess) {
       _loadFiles();
+    } else if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -127,65 +80,71 @@ class _VaultScreenState extends State<VaultScreen> {
 
   Future<bool> _checkSiaConnectivity({String? action}) async {
     if (!_fileRepo.isSiaUploadAvailable) {
-      if (mounted && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(action != null 
-              ? 'Cannot $action. Please go to Settings → Backup & Storage → Connect your SIA node first.'
-              : 'SIA is not connected. Please go to Settings → Backup & Storage to connect your SIA node.'),
-            backgroundColor: Colors.orange.withValues(alpha: 0.8),
-            duration: const Duration(seconds: 5),
-            behavior: SnackBarBehavior.floating,
-            action: SnackBarAction(
-              label: 'Settings',
-              textColor: Colors.white,
-              onPressed: () {
-                Get.offAllNamed('/settings');
-              },
-            ),
-          ),
-        );
-      }
+      Get.snackbar(
+        'SIA Not Connected',
+        action != null 
+          ? 'Cannot $action. Please go to Settings → Backup & Storage → Connect your SIA node first.'
+          : 'SIA is not connected. Please go to Settings → Backup & Storage to connect your SIA node.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orange.withValues(alpha: 0.8),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 5),
+        mainButton: TextButton(
+          onPressed: () {
+            Get.back(); // Close snackbar
+            Get.offAllNamed('/settings');
+          },
+          child: const Text('Go to Settings', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      );
       return false;
     }
 
     // Additional check for SIA password when using self-hosted
     try {
       final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
+      final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
       
       if (backupOption == 'Self-Hosted SIA Node') {
         final siaService = Get.find<SiaService>();
         final isPasswordMissing = await siaService.isPasswordMissing();
         
         if (isPasswordMissing) {
-          if (mounted && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(action != null 
-                  ? 'Cannot $action. Your self-hosted SIA node requires a password.'
-                  : 'Access denied. Your self-hosted SIA node requires a password.'),
-                backgroundColor: Colors.red.withValues(alpha: 0.8),
-                duration: const Duration(seconds: 6),
-                behavior: SnackBarBehavior.floating,
-                action: SnackBarAction(
-                  label: 'Add Password',
-                  textColor: Colors.white,
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const SiaPasswordRequiredScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            );
-          }
+          Get.snackbar(
+            'SIA Password Required',
+            action != null 
+              ? 'Cannot $action. Your self-hosted SIA node requires a password.'
+              : 'Access denied. Your self-hosted SIA node requires a password.',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.red.withValues(alpha: 0.8),
+            colorText: Colors.white,
+            duration: const Duration(seconds: 6),
+            mainButton: TextButton(
+              onPressed: () {
+                Get.back(); // Close snackbar
+                if (!mounted) return;
+                try {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const SiaPasswordRequiredScreen(),
+                    ),
+                  );
+                } catch (e) {
+                  try {
+                    Get.to(() => const SiaPasswordRequiredScreen());
+                  } catch (e2) {
+                    // ignore
+                  }
+                }
+              },
+              child: const Text('Add Password', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          );
           return false;
         }
       }
     } catch (e) {
+      // ignore
     }
     
     return true;
@@ -201,18 +160,9 @@ class _VaultScreenState extends State<VaultScreen> {
       if (_fileRepo.isSiaUploadAvailable) {
         final siaVaultFiles = await _fileRepo.getSiaVaultFiles();
         
-        // Also include locally uploaded files that failed SIA upload
-        final allFiles = await _fileRepo.getAllFiles();
-        final localFailedFiles = allFiles.where((file) => 
-          file.tags.contains('sia-upload-failed')
-        ).toList();
-        
-        // Combine SIA files and locally failed files
-        final combinedFiles = [...siaVaultFiles, ...localFailedFiles];
-        
         setState(() {
-          _files = combinedFiles;
-          _filteredFiles = List.from(combinedFiles);
+          _files = siaVaultFiles;
+          _filteredFiles = List.from(siaVaultFiles);
           _isLoading = false;
         });
       } else {
@@ -221,8 +171,7 @@ class _VaultScreenState extends State<VaultScreen> {
         final siaFiles = allFiles.where((file) => 
           file.tags.contains('sia-uploaded') ||
           file.tags.contains('sia-synced') ||
-          file.tags.contains('sia-vault') ||
-          file.tags.contains('sia-upload-failed')
+          file.tags.contains('sia-vault')
         ).toList();
         
         setState(() {
@@ -234,30 +183,50 @@ class _VaultScreenState extends State<VaultScreen> {
       
       _sortFiles();
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      
-      // Check if the error is SIA-related and provide appropriate message
+      setState(() => _isLoading = false);
+
       final errorMessage = e.toString();
-      final isSiaError = !_fileRepo.isSiaUploadAvailable || 
-                        errorMessage.contains('SIA') || 
-                        errorMessage.contains('sia') ||
-                        errorMessage.contains('connection') ||
-                        errorMessage.contains('network');
-      
+
+      // "not configured" means the node host is blank — show persistent banner.
+      if (errorMessage.contains('not configured') || errorMessage.contains('No Sia node assigned')) {
+        final prefs = await SharedPreferences.getInstance();
+        final appMode = prefs.getString('app_mode') ?? 'managed';
+        final msg = appMode == 'decentralized'
+            ? 'Go to Settings to connect your Sia node.'
+            : 'No Sia node assigned yet. Please contact support or add a node in Settings.';
+        setState(() => _nodeNotConfiguredMessage = msg);
+        return;
+      }
+
+      final isSiaError = !_fileRepo.isSiaUploadAvailable ||
+          errorMessage.contains('SIA') ||
+          errorMessage.contains('sia') ||
+          errorMessage.contains('connection') ||
+          errorMessage.contains('network');
+
       if (isSiaError) {
-        _safeShowSnackbar(
-          title: 'SIA Connection Required',
-          message: 'Unable to load vault files. Please go to Settings → Backup & Storage and connect your SIA node first.',
+        Get.snackbar(
+          'SIA Connection Required',
+          'Unable to load vault files. Please go to Settings → Backup & Storage and connect your SIA node first.',
+          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.orange.withValues(alpha: 0.8),
           colorText: Colors.white,
           duration: const Duration(seconds: 6),
+          mainButton: TextButton(
+            onPressed: () {
+              Get.back();
+              Get.offAllNamed('/settings');
+            },
+            child: const Text('Go to Settings',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
         );
       } else {
-        _safeShowSnackbar(
-          title: 'Error',
-          message: 'Failed to load vault files: $e',
+        Get.snackbar(
+          'Error',
+          'Failed to load vault files: $e',
+          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.red.withValues(alpha: 0.8),
           colorText: Colors.white,
         );
@@ -314,16 +283,18 @@ class _VaultScreenState extends State<VaultScreen> {
       await _fileRepo.syncFromSiaBucket();
       await _loadFiles();
       
-      _safeShowSnackbar(
-        title: 'Success',
-        message: 'Vault synced with SIA successfully',
+      Get.snackbar(
+        'Success',
+        'Vault synced with SIA successfully',
+        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: const Color(0xFF34A853).withValues(alpha: 0.8),
         colorText: Colors.white,
       );
     } catch (e) {
-      _safeShowSnackbar(
-        title: 'Error',
-        message: 'Error syncing from SIA: $e',
+      Get.snackbar(
+        'Error',
+        'Error syncing from SIA: $e',
+        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red.withValues(alpha: 0.8),
         colorText: Colors.white,
       );
@@ -408,8 +379,8 @@ class _VaultScreenState extends State<VaultScreen> {
       );
       stopwatch.stop();
       
-      // Files are downloaded to DecVault folder in Downloads
-      final downloadPath = '/storage/emulated/0/Download/DecVault';
+      // Files are downloaded to SecureSphere folder in Downloads
+      final downloadPath = '/storage/emulated/0/Download/SecureSphere';
       
       // For small files, ensure dialog is visible for at least 500ms
       final minDisplayTime = 500;
@@ -426,9 +397,10 @@ class _VaultScreenState extends State<VaultScreen> {
       await Future.delayed(const Duration(milliseconds: 100));
       await _loadFiles();
       
-      _safeShowSnackbar(
-        title: 'Download Complete',
-        message: _getDownloadSuccessMessage(file.name, downloadPath),
+      Get.snackbar(
+        'Download Complete',
+        _getDownloadSuccessMessage(file.name, downloadPath),
+        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: const Color(0xFF34A853).withValues(alpha: 0.8),
         colorText: Colors.white,
         duration: const Duration(seconds: 8),
@@ -438,25 +410,12 @@ class _VaultScreenState extends State<VaultScreen> {
         Get.back();
       }
       
-      // Check error type and show appropriate message
-      final errorMessage = e.toString();
-      String title = 'Download Failed';
-      String message = 'Error downloading file: $e';
-      
-      if (errorMessage.contains('Out of Memory') || errorMessage.contains('Out of memory')) {
-        title = 'Memory Error';
-        message = 'File too large for available memory. Try: 1) Close other apps, 2) Restart device, 3) Download on desktop, 4) Free up storage.';
-      } else if (errorMessage.contains('No space left')) {
-        title = 'Storage Full';
-        message = 'Not enough storage space. Free up some space and try again.';
-      }
-      
-      _safeShowSnackbar(
-        title: title,
-        message: message,
+      Get.snackbar(
+        'Download Error', 
+        'Failed to download file: $e',
+        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red.withValues(alpha: 0.8),
         colorText: Colors.white,
-        duration: const Duration(seconds: 6),
       );
     }
   }
@@ -468,18 +427,20 @@ class _VaultScreenState extends State<VaultScreen> {
         fileName.toLowerCase().endsWith('.gif') ||
         fileName.toLowerCase().endsWith('.mp4') ||
         fileName.toLowerCase().endsWith('.avi')) {
-      return 'File saved successfully! Check Downloads/DecVault folder or Gallery for "$fileName".';
+      return 'File saved successfully! Check Downloads/DecVault folder or Gallery for "$fileName". Check console logs for exact location.';
     }
-    return 'File saved successfully! Check Downloads/DecVault folder or file manager for "$fileName".';
+    return 'File saved successfully! Check Downloads/DecVault folder or file manager for "$fileName". Check console logs for exact location.';
   }
 
   void _showUploadSuccessNotification(String fileName) {
-    _safeShowSnackbar(
-      title: 'Upload Complete',
-      message: 'File "$fileName" has been uploaded and encrypted successfully.',
+    Get.snackbar(
+      'Upload Complete',
+      'File "$fileName" has been uploaded and encrypted successfully.',
+      snackPosition: SnackPosition.BOTTOM,
       backgroundColor: const Color(0xFF34A853).withValues(alpha: 0.8),
       colorText: Colors.white,
       duration: const Duration(seconds: 3),
+      icon: const Icon(Icons.check_circle, color: Colors.white),
     );
   }
 
@@ -523,9 +484,10 @@ class _VaultScreenState extends State<VaultScreen> {
         );
         
         if (updatedFile.path.isEmpty) {
-          _safeShowSnackbar(
-            title: 'Error',
-            message: 'Could not locate downloaded file. Please try downloading again.',
+          Get.snackbar(
+            'Error',
+            'Could not locate downloaded file. Please try downloading again.',
+            snackPosition: SnackPosition.BOTTOM,
             backgroundColor: Colors.red.withValues(alpha: 0.8),
             colorText: Colors.white,
           );
@@ -548,33 +510,37 @@ class _VaultScreenState extends State<VaultScreen> {
             subject: file.name,
           );
           
-          _safeShowSnackbar(
-            title: 'Sharing',
-            message: 'Share dialog opened for ${file.name}',
+          Get.snackbar(
+            'Sharing',
+            'Share dialog opened for ${file.name}',
+            snackPosition: SnackPosition.BOTTOM,
             backgroundColor: const Color(0xFF34A853).withValues(alpha: 0.8),
             colorText: Colors.white,
             duration: const Duration(seconds: 2),
           );
         } else {
-          _safeShowSnackbar(
-            title: 'Error',
-            message: 'File not found locally. Please download it first.',
+          Get.snackbar(
+            'Error',
+            'File not found locally. Please download it first.',
+            snackPosition: SnackPosition.BOTTOM,
             backgroundColor: Colors.red.withValues(alpha: 0.8),
             colorText: Colors.white,
           );
         }
       } else {
-        _safeShowSnackbar(
-          title: 'Error',
-          message: 'Unable to share this file. Please download it first.',
+        Get.snackbar(
+          'Error',
+          'Unable to share this file. Please download it first.',
+          snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.red.withValues(alpha: 0.8),
           colorText: Colors.white,
         );
       }
     } catch (e) {
-      _safeShowSnackbar(
-        title: 'Share Error',
-        message: 'Failed to share file: $e',
+      Get.snackbar(
+        'Share Error',
+        'Failed to share file: $e',
+        snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red.withValues(alpha: 0.8),
         colorText: Colors.white,
       );
@@ -585,9 +551,11 @@ class _VaultScreenState extends State<VaultScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       drawer: const AppDrawer(),
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E1E),
         elevation: 0,
-        title: const Text('Files Vault', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('Secure Vault', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
           if (_fileRepo.isSiaUploadAvailable)
             IconButton(
@@ -656,21 +624,9 @@ class _VaultScreenState extends State<VaultScreen> {
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF121212),
-              const Color(0xFF1E1E1E),
-              Theme.of(context).primaryColor.withValues(alpha: 0.08),
-            ],
-          ),
-        ),
-        child: Column(
-          children: [
-            Container(
+      body: Column(
+        children: [
+          Container(
             padding: const EdgeInsets.all(16),
             color: const Color(0xFF1E1E1E),
             child: TextField(
@@ -703,6 +659,49 @@ class _VaultScreenState extends State<VaultScreen> {
               ),
             ),
           ),
+          // Node-not-configured notice (host is blank — new managed user or missing setup)
+          if (_nodeNotConfiguredMessage != null)
+            Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.08),
+                border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.settings_ethernet,
+                      color: Colors.blue, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Vault Unavailable',
+                            style: TextStyle(
+                                color: Colors.blue,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text(_nodeNotConfiguredMessage!,
+                            style:
+                                const TextStyle(color: Colors.blue, fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () => Get.offAllNamed('/settings'),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white),
+                    child: const Text('Settings'),
+                  ),
+                ],
+              ),
+            ),
+
           // SIA Connection Notice
           if (!_fileRepo.isSiaUploadAvailable)
             Container(
@@ -796,10 +795,10 @@ class _VaultScreenState extends State<VaultScreen> {
                           ),
                         );
                       } catch (e) {
-                        // Last resort - use Get.to with widget
                         try {
                           Get.to(() => const SiaPasswordRequiredScreen());
                         } catch (e2) {
+                          // ignore
                         }
                       }
                     },
@@ -1023,8 +1022,7 @@ class _VaultScreenState extends State<VaultScreen> {
                     ),
                   ),
           ),
-          ],
-        ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
@@ -1039,31 +1037,15 @@ class _VaultScreenState extends State<VaultScreen> {
             ),
           );
           if (result != null && result is String) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const Icon(Icons.sync, color: Colors.white),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('Upload Processing', style: TextStyle(fontWeight: FontWeight.bold)),
-                            Text('File uploaded! Syncing vault to show updated contents...', style: TextStyle(fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: const Color(0xFF2196F3).withValues(alpha: 0.9),
-                  duration: const Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            }
+            Get.snackbar(
+              'Upload Processing',
+              'File uploaded! Syncing vault to show updated contents...',
+              snackPosition: SnackPosition.TOP,
+              backgroundColor: const Color(0xFF2196F3).withValues(alpha: 0.9),
+              colorText: Colors.white,
+              duration: const Duration(seconds: 2),
+              icon: const Icon(Icons.sync, color: Colors.white),
+            );
             
             await Future.delayed(const Duration(seconds: 2));
             await _loadFiles();
@@ -1101,18 +1083,20 @@ class _VaultScreenState extends State<VaultScreen> {
               try {
                 await _fileRepo.deleteFile(file.id);
                 _loadFiles();
-                _safeShowSnackbar(
-                  title: 'Success',
-                  message: _fileRepo.isSiaUploadAvailable
+                Get.snackbar(
+                  'Success',
+                  _fileRepo.isSiaUploadAvailable
                     ? 'File deleted successfully from local storage and SIA vault'
                     : 'File deleted successfully from local storage (SIA not connected)',
+                  snackPosition: SnackPosition.BOTTOM,
                   backgroundColor: const Color(0xFF34A853).withValues(alpha: 0.8),
                   colorText: Colors.white,
                 );
               } catch (e) {
-                _safeShowSnackbar(
-                  title: 'Error',
-                  message: 'Failed to delete file: $e',
+                Get.snackbar(
+                  'Error',
+                  'Failed to delete file: $e',
+                  snackPosition: SnackPosition.BOTTOM,
                   backgroundColor: Colors.red.withValues(alpha: 0.8),
                   colorText: Colors.white,
                 );

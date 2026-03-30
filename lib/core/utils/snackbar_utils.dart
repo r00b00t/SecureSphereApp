@@ -18,9 +18,6 @@ class SnackbarUtils {
   }) {
     // Check if overlay context is available and has an overlay widget
     if (Get.overlayContext == null) {
-      // If no overlay context, log the error and return
-      debugPrint('⚠️ Cannot show snackbar: No overlay context available');
-      debugPrint('Title: $title, Message: $message');
       return;
     }
 
@@ -28,8 +25,6 @@ class SnackbarUtils {
       // Additional check: verify the context has an actual Overlay widget
       final overlay = Overlay.maybeOf(Get.overlayContext!);
       if (overlay == null) {
-        debugPrint('⚠️ Cannot show snackbar: Overlay widget not found in context');
-        debugPrint('Title: $title, Message: $message');
         return;
       }
 
@@ -62,8 +57,7 @@ class SnackbarUtils {
         ),
       );
     } catch (e) {
-      debugPrint('⚠️ Error showing snackbar: $e');
-      debugPrint('Title: $title, Message: $message');
+      // ignore
     }
   }
 
@@ -140,7 +134,7 @@ class SnackbarUtils {
           Navigator.of(Get.overlayContext!, rootNavigator: true).pop();
         }
       } catch (e) {
-        debugPrint('⚠️ Error closing dialog: $e');
+        // ignore
       }
     }
   }

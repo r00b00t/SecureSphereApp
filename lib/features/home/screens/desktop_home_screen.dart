@@ -13,6 +13,7 @@ import 'package:decvault/features/vault/repositories/file_repository.dart';
 import 'package:decvault/common/widgets/custom_title_bar.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
 import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:decvault/features/decentralized/services/decentralized_service.dart';
 
 class DesktopHomeScreen extends StatefulWidget {
   const DesktopHomeScreen({super.key});
@@ -560,6 +561,12 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
   }
 
   Widget _buildProNavItem() {
+    // Path A: no subscription needed
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) return const SizedBox.shrink();
+    } catch (_) {}
+
     final service = _revenueCatService;
     if (service == null) {
       return _buildNavItem(
@@ -1044,7 +1051,7 @@ class _DesktopHomeScreenState extends State<DesktopHomeScreen> with WidgetsBindi
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('📋 Copied: $label copied to clipboard'),
+                            content: Text('Copied: $label copied to clipboard'),
                             duration: const Duration(seconds: 2),
                           ),
                         );

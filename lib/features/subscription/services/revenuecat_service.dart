@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/config/api_config.dart';
+import 'package:decvault/features/decentralized/services/decentralized_service.dart';
 import 'package:decvault/features/subscription/screens/custom_paywall_screen.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
 
@@ -59,6 +60,14 @@ class RevenueCatService extends GetxController {
   @override
   Future<void> onInit() async {
     super.onInit();
+    // Path A: always Pro — skip SDK initialisation entirely
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) {
+        isPro.value = true;
+        return;
+      }
+    } catch (_) {}
     await initialize();
   }
   
@@ -138,6 +147,12 @@ class RevenueCatService extends GetxController {
   /// Check backend for granted Pro access
   /// Uses DecVault user ID from AuthService, not RevenueCat ID
   Future<bool> _checkBackendProAccess(String revenueCatUserId) async {
+    // Path A: always Pro — skip backend check
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) return true;
+    } catch (_) {}
+
     try {
       // Get the actual DecVault user ID from AuthService
       final authService = Get.find<AuthService>();
@@ -149,12 +164,10 @@ class RevenueCatService extends GetxController {
       }
       
       
+      final authHeaders = await authService.getAuthHeaders();
       final response = await http.get(
         Uri.parse('${ApiConfig.psqlBaseUrl}/api/pro/check/$decVaultUserId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: authHeaders,
       ).timeout(const Duration(seconds: 5));
       
       if (response.statusCode == 200) {
@@ -183,13 +196,22 @@ class RevenueCatService extends GetxController {
   
   /// Manually refresh Pro status (checks both RevenueCat and backend)
   Future<void> refreshProStatus() async {
+    // Path A: always Pro — nothing to refresh
+    try {
+      final decSvc = Get.find<DecentralizedService>();
+      if (decSvc.isDecentralized) {
+        isPro.value = true;
+        return;
+      }
+    } catch (_) {}
+
     try {
       isLoading.value = true;
-      
+
       // Get current customer info from RevenueCat
       final info = await Purchases.getCustomerInfo();
       await _updateCustomerInfo(info);
-      
+
     } catch (e) {
     } finally {
       isLoading.value = false;

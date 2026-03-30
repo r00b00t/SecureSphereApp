@@ -3,9 +3,13 @@ import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show Platform;
-import 'package:window_manager/window_manager.dart';
 import 'package:decvault/features/auth/screens/auth_screen.dart';
 import 'package:decvault/features/auth/screens/desktop_auth_screen.dart';
+import 'package:decvault/features/decentralized/screens/export_device_pairing_screen.dart';
+import 'package:decvault/features/decentralized/screens/import_device_pairing_screen.dart';
+import 'package:decvault/features/decentralized/screens/node_setup_screen.dart';
+import 'package:decvault/features/decentralized/screens/seed_phrase_screen.dart';
+import 'package:decvault/features/decentralized/services/decentralized_service.dart';
 import 'package:decvault/features/home/screens/home_screen.dart';
 import 'package:decvault/features/home/screens/desktop_home_screen.dart';
 import 'package:decvault/features/password/repositories/password_repository.dart';
@@ -15,8 +19,8 @@ import 'package:decvault/features/backup/screens/desktop_backups_screen.dart';
 import 'package:decvault/features/backup/backup_service.dart';
 import 'package:decvault/features/password/screens/password_generator_screen.dart';
 import 'package:decvault/features/password/screens/desktop_password_generator_screen.dart';
-import 'package:decvault/features/password/screens/breach_monitoring_screen_gated.dart';
-import 'package:decvault/features/password/screens/desktop_breach_monitoring_screen_gated.dart';
+import 'package:decvault/features/password/screens/breach_monitoring_screen.dart';
+import 'package:decvault/features/password/screens/desktop_breach_monitoring_screen.dart';
 import 'package:decvault/features/password/screens/add_password_screen.dart';
 import 'package:decvault/features/password/screens/desktop_add_password_screen.dart';
 import 'package:decvault/features/settings/screens/settings_screen.dart';
@@ -24,7 +28,6 @@ import 'package:decvault/features/settings/screens/desktop_settings_screen.dart'
 import 'package:decvault/features/sia/screens/sia_settings_screen.dart';
 import 'package:decvault/features/sia/screens/sia_password_required_screen.dart';
 import 'package:decvault/features/auth/services/auth_service.dart';
-import 'package:decvault/features/auth/services/qr_login_service.dart';
 import 'package:decvault/features/vault/models/file_model.dart';
 import 'package:decvault/features/vault/repositories/file_repository.dart';
 import 'package:decvault/features/vault/screens/vault_screen.dart';
@@ -34,15 +37,15 @@ import 'package:decvault/features/vault/services/encryption_service.dart';
 import 'package:decvault/features/settings/services/settings_service.dart';
 import 'package:decvault/features/sia/services/sia_service.dart';
 import 'package:decvault/features/auth/services/security_service.dart';
-import 'package:decvault/features/subscription/services/revenuecat_service.dart';
-import 'package:decvault/features/subscription/services/storage_service.dart';
+import 'package:decvault/common/widgets/app_lifecycle_wrapper.dart';
 import 'package:decvault/features/subscription/screens/subscription_screen.dart';
 import 'package:decvault/features/subscription/screens/desktop_subscription_screen.dart';
-import 'package:decvault/common/widgets/app_lifecycle_wrapper.dart';
-import 'package:decvault/services/notification_service.dart';
-import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
+import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:decvault/features/subscription/services/storage_service.dart';
 import 'package:decvault/features/about/screens/about_screen.dart';
 import 'package:decvault/features/about/screens/desktop_about_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:decvault/core/network/authenticated_client.dart';
 
 // Helper function to determine if running on desktop
 bool get isDesktop {
@@ -56,368 +59,149 @@ bool get isDesktop {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize window manager for desktop
-  if (isDesktop) {
-    await windowManager.ensureInitialized();
-    
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(1200, 800),
-      minimumSize: Size(800, 600),
-      center: true,
-      backgroundColor: Color(0xFF121212),
-      skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden, // Hide default title bar
-    );
-    
-    windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
-  }
-  
   try {
     // Initialize Hive
     await Hive.initFlutter();
-    
-    // Register the PasswordModel adapter
     Hive.registerAdapter(PasswordModelAdapter());
-    
-    // Register the FileModel adapter
     Hive.registerAdapter(FileModelAdapter());
-    
-    // Open the files box for FileRepository
     await Hive.openBox<FileModel>('files');
-    
-    // Initialize NotificationService for download notifications
-    await NotificationService().initialize();
-    
-    // Initialize and register AuthService first
+
+    // ── DecentralizedService MUST be first: every downstream service calls
+    //    isDecentralized (SiaService, EncryptionService, RevenueCatService…)
+    final decentralizedService = DecentralizedService();
+    await decentralizedService.init();
+    Get.put(decentralizedService);
+
+    // ── AuthService MUST be initialized before route determination.
+    //    init() calls clearDemoData() which can invalidate the session.
+    //    Reading is_logged_in from raw prefs before this runs gives a stale
+    //    answer and can open /home with no valid session.
     final authService = AuthService();
     await authService.init();
     Get.put(authService);
-    
-    // Initialize QrLoginService (depends on AuthService)
-    try {
-      final qrLoginService = QrLoginService();
-      Get.put(qrLoginService);
-    } catch (e) {
-      // Continue without QrLoginService - QR pairing feature will not work
-    }
-    
-    // Check if user is logged in
+
+    // Global JWT 401 interceptor — must be registered before any service that
+    // makes authenticated HTTP calls.
+    Get.put(AuthenticatedClient(), permanent: true);
+
+    // Determine initial route using the authoritative post-init login state.
+    final prefs = await SharedPreferences.getInstance();
+    final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+    final appMode = prefs.getString('app_mode') ?? 'managed';
     final isLoggedIn = await authService.checkLoginStatus();
-    
-    // Initialize PasswordRepository 
+
+    String initialRoute;
+    if (!onboardingComplete) {
+      // Path choice is embedded in both auth screens (desktop and mobile).
+      initialRoute = '/auth';
+    } else if (isLoggedIn && appMode == 'decentralized') {
+      initialRoute = '/home';
+    } else {
+      initialRoute = '/auth';
+    }
+
+    // Initialize PasswordRepository
     final privateKey = isLoggedIn ? await authService.getPrivateKey() : null;
-    final passwordRepo = PasswordRepository(privateKey ?? ''); 
+    final passwordRepo = PasswordRepository(privateKey ?? '');
     await passwordRepo.init();
     Get.put(passwordRepo);
-    
-    // Initialize SettingsService first (required by other services)
+
+    // Initialize SettingsService (required by RenterdUploader and BackupService)
     final settingsService = SettingsService();
     Get.put(settingsService);
-    
-    // Initialize EncryptionService (required by BackupService)
+
+    // Initialize EncryptionService (required by BackupService and RenterdUploader)
     final encryptionService = EncryptionService(authService);
     Get.put(encryptionService);
-    
-    // Initialize SiaService
+
+    // Initialize SiaService (makes HTTP calls — isolate failures so a network
+    // error at startup does not prevent the app from opening)
     final siaService = SiaService();
-    await siaService.init();
+    try {
+      await siaService.init();
+    } catch (e) {
+      // ignore
+    }
     Get.put(siaService);
-    
+
     // Initialize BackupService (depends on SettingsService and EncryptionService)
     final backupService = BackupService();
     try {
       await backupService.init();
-      Get.put(backupService);
     } catch (e) {
-      // Register it anyway to avoid GetX errors, but mark as failed
-      Get.put(backupService);
+      // ignore
     }
-    
-    // Initialize RenterdUploader
+    Get.put(backupService);
+
+    // Initialize RenterdUploader (depends on SettingsService and EncryptionService)
     final renterdUploader = RenterdUploader(settingsService, encryptionService);
     Get.put(renterdUploader);
-    
-    // Initialize FileRepository with RenterdUploader
+
+    // Initialize FileRepository (depends on RenterdUploader)
     final fileRepo = FileRepository(renterdUploader);
     Get.put(fileRepo);
-    
+
     // Initialize SecurityService (for PIN and biometric authentication)
     try {
       final securityService = SecurityService();
       await securityService.onInit();
       Get.put(securityService);
     } catch (e) {
-      // Continue without SecurityService - app will work but without PIN/biometric features
+      // ignore
     }
-    
-    // Initialize RevenueCat (for subscriptions)
-    try {
-      final revenueCatService = RevenueCatService();
-      await revenueCatService.onInit();
-      Get.put(revenueCatService);
-      
-      // Login user to RevenueCat and check backend Pro status
-      if (isLoggedIn) {
-        final userId = await authService.getUserId();
-        if (userId != null) {
-          try {
-            await revenueCatService.loginUser(userId);
-          } catch (e) {
-          }
-        }
-      }
-    } catch (e) {
-      // Continue without RevenueCat - app will work but without subscription features
-    }
-    
-    // Initialize StorageService (for tracking file vault usage)
-    try {
-      final storageService = StorageService();
-      await storageService.onInit();
-      Get.put(storageService);
-      
-      // Set user ID and sync if user is logged in
-      if (isLoggedIn) {
-        final userId = await authService.getUserId();
-        if (userId != null) {
-          storageService.setUserId(userId);
-          try {
-            await storageService.syncWithBackend();
-          } catch (e) {
-          }
-        }
-      }
-    } catch (e) {
-      // Continue without StorageService - app will work but without storage tracking
-    }
-    
-    runApp(const DecVaultApp());
+
+    // Register subscription services
+    Get.put(RevenueCatService(), permanent: true);
+    Get.put(StorageService(), permanent: true);
+
+    runApp(SecureSphereApp(initialRoute: initialRoute));
   } catch (e) {
-    rethrow;
+    runApp(const _StartupErrorApp());
   }
 }
 
-class DecVaultApp extends StatefulWidget {
-  const DecVaultApp({super.key});
-
-  @override
-  State<DecVaultApp> createState() => _DecVaultAppState();
-}
-
-class _DecVaultAppState extends State<DecVaultApp> with WindowListener {
-  String? _initialRoute;
-  bool _isInitialized = false;
-  DateTime? _lastFocusLostTime;
-  DateTime? _lastFocusGainedTime;
-  static const Duration _focusDebounce = Duration(milliseconds: 500);
-  
-  SecurityService? get _securityService {
-    try {
-      return Get.find<SecurityService>();
-    } catch (e) {
-      return null;
-    }
-  }
-  
-  @override
-  void initState() {
-    super.initState();
-    _determineInitialRoute();
-    
-    // Add window listener for desktop
-    if (isDesktop) {
-      windowManager.addListener(this);
-    }
-  }
-  
-  @override
-  void dispose() {
-    if (isDesktop) {
-      windowManager.removeListener(this);
-    }
-    super.dispose();
-  }
-  
-  // WindowListener callbacks for desktop
-  @override
-  void onWindowFocus() {
-    // Window gained focus - check if we need to unlock
-    _onWindowFocusGained();
-  }
-  
-  @override
-  void onWindowBlur() {
-    // Window lost focus - lock the app if PIN is enabled
-    _onWindowFocusLost();
-  }
-  
-  @override
-  void onWindowMinimize() {
-    // Window minimized - lock the app
-    _onWindowFocusLost();
-  }
-  
-  @override
-  void onWindowRestore() {
-    // Window restored from minimize - show unlock if needed
-    _onWindowFocusGained();
-  }
-  
-  @override
-  void onWindowClose() async {
-    // Window is closing
-  }
-  
-  @override
-  void onWindowMaximize() {
-    // Window maximized - no action needed
-  }
-  
-  @override
-  void onWindowUnmaximize() {
-    // Window unmaximized - no action needed
-  }
-  
-  @override
-  void onWindowResize() {
-    // Window resized - no action needed
-  }
-  
-  @override
-  void onWindowMove() {
-    // Window moved - no action needed
-  }
-  
-  @override
-  void onWindowEnterFullScreen() {
-    // Entered fullscreen - no action needed
-  }
-  
-  @override
-  void onWindowLeaveFullScreen() {
-    // Left fullscreen - no action needed
-  }
-  
-  Future<void> _onWindowFocusLost() async {
-    _lastFocusLostTime = DateTime.now();
-    
-    final service = _securityService;
-    if (service == null) return;
-    
-    // Lock the app if security is enabled and lockOnAppClose is true
-    if (service.hasSecurityEnabled && service.securitySettings.lockOnAppClose) {
-      await service.lockApp();
-    }
-  }
-  
-  Future<void> _onWindowFocusGained() async {
-    _lastFocusGainedTime = DateTime.now();
-    
-    final service = _securityService;
-    if (service == null) return;
-    
-    // Check if this was a very quick focus change (debounce)
-    if (_lastFocusLostTime != null) {
-      final timeSinceBlur = DateTime.now().difference(_lastFocusLostTime!);
-      if (timeSinceBlur < _focusDebounce) {
-        // Too quick, likely just a system dialog or quick alt-tab
-        return;
-      }
-    }
-    
-    // Small delay to ensure window is fully visible
-    await Future.delayed(const Duration(milliseconds: 300));
-    
-    // Check if we need to show PIN unlock
-    if (service.hasSecurityEnabled && service.isAppLocked) {
-      // Make sure we're not on the auth screen
-      if (Get.currentRoute != '/auth' && !Get.isDialogOpen!) {
-        Get.dialog(
-          const PinUnlockScreen(),
-          barrierDismissible: false,
-          barrierColor: Colors.black87,
-        );
-      }
-    }
-  }
-  
-  Future<void> _determineInitialRoute() async {
-    try {
-      final authService = Get.find<AuthService>();
-      final isLoggedIn = await authService.checkLoginStatus();
-      
-      if (isLoggedIn) {
-        // User is logged in, go to home
-        // The AppLifecycleWrapper will show the PIN unlock screen if needed
-        setState(() {
-          _initialRoute = '/home';
-          _isInitialized = true;
-        });
-      } else {
-        // Not logged in, show auth screen
-        setState(() {
-          _initialRoute = '/auth';
-          _isInitialized = true;
-        });
-      }
-    } catch (e) {
-      // Error checking login status, default to auth screen
-      setState(() {
-        _initialRoute = '/auth';
-        _isInitialized = true;
-      });
-    }
-  }
+class _StartupErrorApp extends StatelessWidget {
+  const _StartupErrorApp();
 
   @override
   Widget build(BuildContext context) {
-    // Show loading screen until initial route is determined
-    if (!_isInitialized || _initialRoute == null) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Scaffold(
-          backgroundColor: const Color(0xFF121212),
-          body: Center(
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: Color(0xFF121212),
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Logo or app name
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E8E3E).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(
-                    Icons.lock_outline,
-                    size: 64,
-                    color: Color(0xFF34A853),
-                  ),
+                Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                SizedBox(height: 16),
+                Text(
+                  'Failed to start',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 24),
-                const Text(
-                  'DecVault',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 48),
-                const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF34A853)),
+                SizedBox(height: 8),
+                Text(
+                  'A critical error occurred during startup.\nPlease restart the app.',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
           ),
         ),
-      );
-    }
-    
+      ),
+    );
+  }
+}
+
+class SecureSphereApp extends StatelessWidget {
+  final String initialRoute;
+  const SecureSphereApp({super.key, required this.initialRoute});
+
+  @override
+  Widget build(BuildContext context) {
     return AppLifecycleWrapper(
       child: GetMaterialApp(
       title: 'DecVault',
@@ -567,8 +351,12 @@ class _DecVaultAppState extends State<DecVaultApp> with WindowListener {
       ),
       themeMode: ThemeMode.dark, // Force dark mode
       debugShowCheckedModeBanner: false,
-      initialRoute: _initialRoute,
+      initialRoute: initialRoute,
       getPages: [
+        GetPage(name: '/decentralized-node-setup', page: () => const NodeSetupScreen()),
+        GetPage(name: '/decentralized-seed-phrase', page: () => const DecentralizedSeedPhraseScreen()),
+        GetPage(name: '/device-pairing-export', page: () => const ExportDevicePairingScreen()),
+        GetPage(name: '/device-pairing-import', page: () => const ImportDevicePairingScreen()),
         GetPage(name: '/auth', page: () => isDesktop ? const DesktopAuthScreen() : const AuthScreen()),
         GetPage(name: '/home', page: () => isDesktop ? const DesktopHomeScreen() : const HomeScreen()),
         GetPage(name: '/backups', page: () => isDesktop ? const DesktopBackupsScreen() : const BackupsScreen()),
@@ -576,12 +364,11 @@ class _DecVaultAppState extends State<DecVaultApp> with WindowListener {
         GetPage(name: '/settings', page: () => isDesktop ? const DesktopSettingsScreen() : const SettingsScreen()),
         GetPage(name: '/sia-settings', page: () => const SiaSettingsScreen()),
         GetPage(name: '/sia-password-required', page: () => const SiaPasswordRequiredScreen()),
-        GetPage(name: '/breach-monitoring', page: () => isDesktop ? const DesktopBreachMonitoringScreenGated() : const BreachMonitoringScreenGated()),
+        GetPage(name: '/breach-monitoring', page: () => isDesktop ? const DesktopBreachMonitoringScreen() : const BreachMonitoringScreen()),
         GetPage(name: '/vault', page: () => isDesktop ? const DesktopVaultScreen() : const VaultScreen()),
         GetPage(name: '/add-password', page: () => isDesktop ? const DesktopAddPasswordScreen() : const AddPasswordScreen()),
         GetPage(name: '/subscription', page: () => isDesktop ? const DesktopSubscriptionScreen() : const SubscriptionScreen()),
         GetPage(name: '/about', page: () => isDesktop ? const DesktopAboutScreen() : const AboutScreen()),
-        // Security settings are now integrated into the main settings screen
       ],
       ),
     );

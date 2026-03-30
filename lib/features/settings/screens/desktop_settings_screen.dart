@@ -1,23 +1,18 @@
-import 'dart:convert';
 import 'dart:async';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:decvault/config/api_config.dart';
 import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/common/widgets/custom_title_bar.dart';
-import 'package:decvault/features/sia/services/sia_service.dart';
 import 'package:decvault/features/auth/services/security_service.dart';
 import 'package:decvault/features/auth/screens/pin_setup_screen.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:decvault/features/subscription/services/storage_service.dart';
 import 'package:decvault/features/subscription/services/revenuecat_service.dart';
+import 'package:decvault/features/decentralized/services/decentralized_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
-import 'package:decvault/services/localization_service.dart';
 
 class DesktopSettingsScreen extends StatefulWidget {
   const DesktopSettingsScreen({super.key});
@@ -29,21 +24,6 @@ class DesktopSettingsScreen extends StatefulWidget {
 class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   String _selectedCategory = 'general';
   
-  // Backup storage option
-  String _selectedBackupOption = 'DecVault';
-  
-  // Controllers for text fields
-  final TextEditingController _siaIpController = TextEditingController();
-  final TextEditingController _siaPortController = TextEditingController();
-  final TextEditingController _siaPasswordController = TextEditingController();
-  String? _siaStatusMessage;
-  bool _siaConnecting = false;
-  final TextEditingController _urlController = TextEditingController();
-  final TextEditingController _portController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _keyController = TextEditingController();
-  final TextEditingController _secretKeyController = TextEditingController();
-  
   // Security settings controllers and variables
   final TextEditingController _currentPinController = TextEditingController();
   final TextEditingController _newPinController = TextEditingController();
@@ -52,7 +32,6 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   
   bool _biometricsAvailable = false;
   bool _useBiometrics = false;
-  bool _siaConnected = false;
   bool _seedPhraseVisible = false;
   int _autoLockTimeSeconds = 60; // Default 60 seconds
   
@@ -86,9 +65,6 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       // Ignore invalid arguments
     }
     _loadBiometricsSetting();
-    _loadBackupOption();
-    _loadSiaConnectionStatus();
-    _loadSiaConfiguration();
     _loadSecuritySettings();
     _refreshProStatus();
   }
@@ -98,19 +74,12 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       final revenueCatService = Get.find<RevenueCatService>();
       await revenueCatService.refreshProStatus();
     } catch (e) {
+      // RevenueCatService not available or refresh failed — non-fatal
     }
   }
 
   @override
   void dispose() {
-    _siaIpController.dispose();
-    _siaPortController.dispose();
-    _siaPasswordController.dispose();
-    _urlController.dispose();
-    _portController.dispose();
-    _passwordController.dispose();
-    _keyController.dispose();
-    _secretKeyController.dispose();
     _currentPinController.dispose();
     _newPinController.dispose();
     _confirmPinController.dispose();
@@ -195,10 +164,12 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
     try {
       final canCheck = await _localAuth.canCheckBiometrics;
       final isDeviceSupported = await _localAuth.isDeviceSupported();
+      if (!mounted) return;
       setState(() {
         _biometricsAvailable = canCheck && isDeviceSupported;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _biometricsAvailable = false;
       });
@@ -207,132 +178,12 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
 
   Future<void> _loadBiometricsSetting() async {
     if (_securityService != null) {
-      // For now, just load from shared preferences since the method doesn't exist
       final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
       final enabled = prefs.getBool('biometrics_enabled') ?? false;
       setState(() {
         _useBiometrics = enabled;
       });
-    }
-  }
-
-  Future<void> _loadBackupOption() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _selectedBackupOption = prefs.getString('backupOption') ?? 'DecVault';
-    });
-  }
-
-  Future<void> _loadSiaConnectionStatus() async {
-    try {
-      // Use SIA service to check connection status properly
-      final siaService = Get.find<SiaService>();
-      final config = siaService.currentConfig;
-      
-      if (config != null) {
-        setState(() {
-          _siaConnected = true;
-          if (config.isDecVaultManagedNode) {
-            _siaStatusMessage = 'Connected to DecVault managed node';
-          } else {
-            _siaStatusMessage = 'Connected to self-hosted SIA node (${config.host}:${config.port})';
-          }
-        });
-      } else {
-        setState(() {
-          _siaConnected = false;
-          _siaStatusMessage = 'Not connected to any SIA node';
-        });
-      }
-    } catch (e) {
-      // Fallback to old method
-      final prefs = await SharedPreferences.getInstance();
-      setState(() {
-        _siaConnected = prefs.getBool('sia_connected') ?? false;
-      });
-    }
-  }
-
-  Future<void> _loadSiaConfiguration() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
-      
-      setState(() {
-        _selectedBackupOption = backupOption;
-      });
-
-      if (backupOption == 'Self-Hosted SIA Node') {
-        await _loadSelfHostedConfig();
-      } else {
-        // Clear form for DecVault option
-        setState(() {
-          _siaIpController.clear();
-          _siaPortController.clear();
-          _siaPasswordController.clear();
-        });
-      }
-    } catch (e) {
-    }
-  }
-  
-  Future<void> _loadSelfHostedConfig() async {
-    try {
-      final userId = await _authService.getUserId();
-      if (userId == null) return;
-      
-      // Load SIA node config from backend
-      final url = Uri.parse(ApiConfig.getSiaNodeEndpoint(userId));
-      final headers = {
-        'Content-Type': 'application/json',
-        'api-key': ApiConfig.psqlApiKey,
-      };
-      
-      final response = await http.get(url, headers: headers);
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final node = data['node'] as Map<String, dynamic>;
-        
-        // Populate form with backend data
-        setState(() {
-          _siaIpController.text = node['host'] ?? '';
-          _siaPortController.text = (node['port'] ?? '').toString();
-          
-          // Check if password is stored locally
-          _checkStoredPassword();
-        });
-      } else {
-        // No config in backend, clear form
-        setState(() {
-          _siaIpController.clear();
-          _siaPortController.clear();
-          _siaPasswordController.clear();
-          _siaStatusMessage = null;
-          _siaConnected = false;
-        });
-      }
-    } catch (e) {
-    }
-  }
-  
-  Future<void> _checkStoredPassword() async {
-    try {
-      // Use SIA service to properly check for stored password
-      final siaService = Get.find<SiaService>();
-      final storedPassword = await siaService.getStoredPassword();
-      if (storedPassword != null && storedPassword.isNotEmpty) {
-        setState(() {
-          _siaStatusMessage = 'SIA node configured (password stored)';
-          _siaConnected = true;
-        });
-      } else {
-        setState(() {
-          _siaStatusMessage = 'SIA node configured (password required)';
-          _siaConnected = false;
-        });
-      }
-    } catch (e) {
     }
   }
 
@@ -343,6 +194,19 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       setState(() {
         _autoLockTimeSeconds = settings.autoLockTimeSeconds;
       });
+    }
+  }
+
+  Future<Map<String, String>?> _getDecentralizedNodeInfo() async {
+    try {
+      final config = await Get.find<DecentralizedService>().getNodeConfig();
+      if (config == null) return null;
+      return {
+        'host': config['host'] ?? '',
+        'port': config['port'] ?? '',
+      };
+    } catch (_) {
+      return null;
     }
   }
 
@@ -647,6 +511,14 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
   }
 
   Widget _buildBackupSettings() {
+    final bool isDecentralized = () {
+      try {
+        return Get.find<DecentralizedService>().isDecentralized;
+      } catch (_) {
+        return false;
+      }
+    }();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -661,157 +533,241 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          
-          _buildSettingsCard(
-            title: 'Storage Provider',
-            icon: Icons.storage,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Choose your backup storage provider:',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // DecVault Option
-                    RadioListTile<String>(
-                      title: Text('decvault_decentralized_server'.tr),
-                      subtitle: Text('use_managed_sia_node'.tr),
-                      value: 'DecVault',
-                      groupValue: _selectedBackupOption,
-                      onChanged: (value) async {
-                        setState(() {
-                          _selectedBackupOption = value!;
-                          // Clear self-hosted fields when switching to DecVault
-                          _siaIpController.clear();
-                          _siaPortController.clear();
-                          _siaPasswordController.clear();
-                          _siaStatusMessage = null;
-                          _siaConnected = false;
-                        });
-                        await _saveBackupOption(value!);
-                      },
-                    ),
-                    
-                    // Self-hosted Option
-                    RadioListTile<String>(
-                      title: Text('self_hosted_sia_node'.tr),
-                      subtitle: Text('use_own_sia_node'.tr),
-                      value: 'Self-Hosted SIA Node',
-                      groupValue: _selectedBackupOption,
-                      onChanged: (value) async {
-                        setState(() {
-                          _selectedBackupOption = value!;
-                        });
-                        await _saveBackupOption(value!);
-                        await _loadSelfHostedConfig();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Self-hosted configuration section
-          if (_selectedBackupOption == 'Self-Hosted SIA Node') ...[
+
+          if (isDecentralized) ...[
             _buildSettingsCard(
-              title: 'SIA Node Configuration',
-              icon: Icons.settings_ethernet,
+              title: 'Storage Node',
+              icon: Icons.dns_outlined,
               children: [
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TextField(
-                        controller: _siaIpController,
-                        decoration: const InputDecoration(
-                          labelText: 'Host/IP Address',
-                          hintText: 'Enter your SIA node IP address',
-                          border: OutlineInputBorder(),
-                        ),
+                      const Text(
+                        'Your data is stored on your own renterd node.',
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
                       ),
                       const SizedBox(height: 16),
-                      TextField(
-                        controller: _siaPortController,
-                        decoration: const InputDecoration(
-                          labelText: 'Port',
-                          hintText: 'Enter port number (e.g., 9980)',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
+                      FutureBuilder<Map<String, String>?>(
+                        future: _getDecentralizedNodeInfo(),
+                        builder: (context, snapshot) {
+                          final info = snapshot.data;
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Connected node',
+                                      style: TextStyle(
+                                          color: Colors.white54, fontSize: 12),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      info != null
+                                          ? '${info['host']}:${info['port']}'
+                                          : 'Not configured',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontFamily: 'monospace',
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    Get.toNamed('/decentralized-node-setup'),
+                                icon: const Icon(Icons.edit_outlined, size: 16),
+                                label: const Text('Change node'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF34A853),
+                                  side: const BorderSide(
+                                      color: Color(0xFF34A853)),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _siaPasswordController,
-                        decoration: const InputDecoration(
-                          labelText: 'API Password',
-                          hintText: 'Enter your SIA node API password',
-                          border: OutlineInputBorder(),
-                        ),
-                        obscureText: true,
-                      ),
-                      const SizedBox(height: 16),
-                      if (_siaStatusMessage != null)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                                                       color: _siaConnected 
-                               ? Colors.green.withValues(alpha: 0.2)
-                               : Colors.orange.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: _siaConnected ? Colors.green : Colors.orange,
-                            ),
-                          ),
-                          child: Text(
-                            _siaStatusMessage!,
-                            style: TextStyle(
-                              color: _siaConnected ? Colors.green : Colors.orange,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
                 ),
-                const Divider(),
-                ListTile(
-                  title: Text(_siaConnected ? 'Connected' : 'Test & Save Connection'),
-                  subtitle: Text('test_save_sia_config'.tr),
-                  trailing: _siaConnecting 
-                      ? const SizedBox(
-                          width: 20, 
-                          height: 20, 
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(_siaConnected ? Icons.check_circle : Icons.wifi),
-                  onTap: _siaConnecting ? null : _saveSiaSettings,
-                ),
-                if (_siaConnected) ...[
-                  const Divider(),
-                  ListTile(
-                    title: Text('disconnect'.tr),
-                    subtitle: Text('disconnect_from_sia'.tr),
-                    trailing: const Icon(Icons.link_off),
-                    onTap: _disconnectSia,
-                  ),
-                ],
               ],
             ),
             const SizedBox(height: 16),
+            _buildSettingsCard(
+              title: 'Storage',
+              icon: Icons.storage,
+              children: const [
+                Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.all_inclusive,
+                          color: Color(0xFF1E8E3E), size: 28),
+                      SizedBox(width: 16),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Unlimited Storage',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Using your own renterd node',
+                            style:
+                                TextStyle(color: Colors.grey, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            GetX<StorageService>(
+              builder: (storageService) {
+                return _buildSettingsCard(
+                  title: 'Storage Usage',
+                  icon: Icons.storage,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    storageService.getStorageUsageText(),
+                                    style: const TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${storageService.getPercentageText()} used',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              GetX<RevenueCatService>(
+                                builder: (revenueCatService) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: revenueCatService.isPro.value
+                                          ? const Color(0xFF1E8E3E)
+                                          : Colors.grey.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      revenueCatService.isPro.value
+                                          ? 'PRO PLAN'
+                                          : 'FREE PLAN',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: LinearProgressIndicator(
+                              value:
+                                  storageService.percentageUsed.value / 100,
+                              backgroundColor:
+                                  Colors.grey.withOpacity(0.2),
+                              color: storageService.getStorageStatusColor(),
+                              minHeight: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Storage Plan',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[400],
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    storageService.getStorageTierName(),
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              GetX<RevenueCatService>(
+                                builder: (revenueCatService) {
+                                  if (!revenueCatService.isPro.value) {
+                                    return ElevatedButton.icon(
+                                      onPressed: () {
+                                        revenueCatService.presentPaywall();
+                                      },
+                                      icon: const Icon(Icons.upgrade,
+                                          size: 18),
+                                      label:
+                                          const Text('Upgrade to Pro'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            const Color(0xFF1E8E3E),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
+                                      ),
+                                    );
+                                  }
+                                  return const SizedBox.shrink();
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ],
         ],
       ),
     );
   }
+
 
 
 
@@ -959,9 +915,7 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
           const SizedBox(height: 16),
           
           // Language Settings Card
-          GetX<LocalizationService>(
-            builder: (localizationService) {
-              return _buildSettingsCard(
+          _buildSettingsCard(
                 title: 'Language',
                 icon: Icons.language,
                 children: [
@@ -978,34 +932,15 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        ListTile(
-                          leading: const Icon(Icons.language, color: Color(0xFF34A853)),
-                          title: const Text('English'),
-                          trailing: localizationService.isLanguageSelected('en')
-                              ? const Icon(Icons.check_circle, color: Color(0xFF34A853))
-                              : null,
-                          onTap: () async {
-                            await localizationService.changeLanguage('en');
-                            SnackbarUtils.showSuccess(
-                              title: 'Success',
-                              message: 'Language changed to English',
-                            );
-                          },
+                        const ListTile(
+                          leading: Icon(Icons.language, color: Color(0xFF34A853)),
+                          title: Text('English'),
+                          trailing: Icon(Icons.check_circle, color: Color(0xFF34A853)),
                         ),
                         const Divider(),
-                        ListTile(
-                          leading: const Icon(Icons.language, color: Color(0xFF34A853)),
-                          title: const Text('Français'),
-                          trailing: localizationService.isLanguageSelected('fr')
-                              ? const Icon(Icons.check_circle, color: Color(0xFF34A853))
-                              : null,
-                          onTap: () async {
-                            await localizationService.changeLanguage('fr');
-                            SnackbarUtils.showSuccess(
-                              title: 'Succès',
-                              message: 'Langue changée en français',
-                            );
-                          },
+                        const ListTile(
+                          leading: Icon(Icons.language, color: Color(0xFF34A853)),
+                          title: Text('Français'),
                         ),
                         const SizedBox(height: 16),
                         Container(
@@ -1032,135 +967,174 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
                     ),
                   ),
                 ],
-              );
-            },
-          ),
-          
+              ),
+
           const SizedBox(height: 16),
-          
+
           // Storage Usage Card
-          GetX<StorageService>(
-            builder: (storageService) {
-              return _buildSettingsCard(
-                title: 'Storage Usage',
-                icon: Icons.storage,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Storage usage text
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  storageService.getStorageUsageText(),
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${storageService.getPercentageText()} used',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[400],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            GetX<RevenueCatService>(
-                              builder: (revenueCatService) {
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: revenueCatService.isPro.value 
-                                        ? const Color(0xFF1E8E3E) 
-                                        : Colors.grey.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    revenueCatService.isPro.value ? 'PRO PLAN' : 'FREE PLAN',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        
-                        // Progress bar
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LinearProgressIndicator(
-                            value: storageService.percentageUsed.value / 100,
-                            backgroundColor: Colors.grey.withOpacity(0.2),
-                            color: storageService.getStorageStatusColor(),
-                            minHeight: 14,
+          Builder(
+            builder: (context) {
+              bool isDecentralized = false;
+              try {
+                isDecentralized = Get.find<DecentralizedService>().isDecentralized;
+              } catch (_) {}
+
+              if (isDecentralized) {
+                return _buildSettingsCard(
+                  title: 'Storage',
+                  icon: Icons.storage,
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.all_inclusive, color: Color(0xFF1E8E3E), size: 28),
+                          SizedBox(width: 16),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Unlimited Storage',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Using your own renterd node',
+                                style: TextStyle(color: Colors.grey, fontSize: 14),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        
-                        // Storage tier info and upgrade button
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              return GetX<StorageService>(
+                builder: (storageService) {
+                  return _buildSettingsCard(
+                    title: 'Storage Usage',
+                    icon: Icons.storage,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            // Storage usage text
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  'Storage Plan',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[400],
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      storageService.getStorageUsageText(),
+                                      style: const TextStyle(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${storageService.getPercentageText()} used',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[400],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  storageService.getStorageTierName(),
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                                GetX<RevenueCatService>(
+                                  builder: (revenueCatService) {
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: revenueCatService.isPro.value
+                                            ? const Color(0xFF1E8E3E)
+                                            : Colors.grey.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        revenueCatService.isPro.value ? 'PRO PLAN' : 'FREE PLAN',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ),
-                            GetX<RevenueCatService>(
-                              builder: (revenueCatService) {
-                                if (!revenueCatService.isPro.value) {
-                                  return ElevatedButton.icon(
-                                    onPressed: () {
-                                      revenueCatService.presentPaywall();
-                                    },
-                                    icon: const Icon(Icons.upgrade, size: 18),
-                                    label: const Text('Upgrade to Pro'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF1E8E3E),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            const SizedBox(height: 20),
+
+                            // Progress bar
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: LinearProgressIndicator(
+                                value: storageService.percentageUsed.value / 100,
+                                backgroundColor: Colors.grey.withOpacity(0.2),
+                                color: storageService.getStorageStatusColor(),
+                                minHeight: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Storage tier info and upgrade button
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Storage Plan',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[400],
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  );
-                                }
-                                return const SizedBox.shrink();
-                              },
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      storageService.getStorageTierName(),
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                GetX<RevenueCatService>(
+                                  builder: (revenueCatService) {
+                                    if (!revenueCatService.isPro.value) {
+                                      return ElevatedButton.icon(
+                                        onPressed: () {
+                                          revenueCatService.presentPaywall();
+                                        },
+                                        icon: const Icon(Icons.upgrade, size: 18),
+                                        label: const Text('Upgrade to Pro'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF1E8E3E),
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        ),
+                                      );
+                                    }
+                                    return const SizedBox.shrink();
+                                  },
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                ],
+                      ),
+                    ],
+                  );
+                },
               );
             },
           ),
@@ -1347,190 +1321,6 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       ),
     );
   }
-
-  Future<void> _saveBackupOption(String option) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('backupOption', option);
-      
-      // Use SIA service to reload configuration based on new backup option
-      final siaService = Get.find<SiaService>();
-      await siaService.loadSiaConfiguration();
-      
-      // Refresh connection status
-      await _loadSiaConnectionStatus();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Backup Option Updated - Storage provider changed to $option'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: Failed to save backup option: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    }
-  }
-
-  void _saveSiaSettings() async {
-    setState(() {
-      _siaStatusMessage = null;
-      _siaConnecting = true;
-    });
-    
-    final host = _siaIpController.text.trim();
-    final portText = _siaPortController.text.trim();
-    final password = _siaPasswordController.text;
-    
-    
-    // Input validation
-    if (host.isEmpty) {
-      setState(() {
-        _siaStatusMessage = 'Host/IP address cannot be empty.';
-        _siaConnecting = false;
-      });
-      return;
-    }
-    
-    final port = int.tryParse(portText);
-    if (port == null || port <= 0 || port > 65535) {
-      setState(() {
-        _siaStatusMessage = 'Please enter a valid port number (1-65535).';
-        _siaConnecting = false;
-      });
-      return;
-    }
-    
-    if (password.isEmpty) {
-      setState(() {
-        _siaStatusMessage = 'Password cannot be empty.';
-        _siaConnecting = false;
-      });
-      return;
-    }
-    
-    try {
-      // Use SIA service to save configuration - same as mobile app
-      final siaService = Get.find<SiaService>();
-      final success = await siaService.saveSiaConfigToBackend(host, portText, password);
-      
-      if (success) {
-        // Test connection to SIA node
-        final authHeader = 'Basic ' + base64Encode(utf8.encode(':$password'));
-        final url = 'http://$host:$port/api/worker/state';
-        
-        final response = await http.get(Uri.parse(url), headers: {'Authorization': authHeader});
-        
-        if (response.statusCode == 200) {
-          try {
-            final responseData = jsonDecode(response.body);
-            // Check if response contains expected worker state fields
-            if (responseData is Map<String, dynamic> && 
-                responseData.containsKey('id') && 
-                responseData.containsKey('version')) {
-              setState(() {
-                _siaStatusMessage = 'Connected to Self-Hosted SIA (${responseData['version']})';
-                _siaConnected = true;
-              });
-              
-              // Set backup option to Self-Hosted since connection succeeded
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('backupOption', 'Self-Hosted SIA Node');
-              
-              SnackbarUtils.showSuccess(
-                title: 'Success', 
-                message: 'SIA node connected and configured successfully',
-              );
-            } else {
-              setState(() {
-                _siaStatusMessage = 'Invalid response from SIA worker. Please check your connection.';
-                _siaConnected = false;
-              });
-            }
-          } catch (e) {
-            setState(() {
-              _siaStatusMessage = 'Invalid JSON response from SIA worker.';
-              _siaConnected = false;
-            });
-          }
-        } else if (response.statusCode == 401 || response.body.contains('Unauthorized')) {
-          setState(() {
-            _siaStatusMessage = 'Authentication failed. Please check your password.';
-            _siaConnected = false;
-          });
-        } else {
-          setState(() {
-            _siaStatusMessage = 'Connection failed. Status: ${response.statusCode}';
-            _siaConnected = false;
-          });
-        }
-      } else {
-        setState(() {
-          _siaStatusMessage = 'Failed to save SIA configuration.';
-          _siaConnected = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _siaStatusMessage = 'Error: $e';
-        _siaConnected = false;
-      });
-    }
-    
-    setState(() {
-      _siaConnecting = false;
-    });
-  }
-
-  Future<void> _disconnectSia() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Clear SIA configuration and verification status
-      await prefs.remove('sia_config');
-      await prefs.setBool('sia_verified', false);
-      await prefs.setBool('sia_manually_connected', false);
-      await prefs.remove('local_sia_config');
-      
-      // Clear form fields
-      _siaIpController.clear();
-      _siaPortController.clear();
-      _siaPasswordController.clear();
-      
-      // Clear stored password from SIA service
-      try {
-        final siaService = Get.find<SiaService>();
-        await siaService.clearStoredPassword();
-      } catch (e) {
-      }
-      
-      setState(() {
-        _siaConnected = false;
-        _siaStatusMessage = 'Disconnected from SIA';
-      });
-      
-      SnackbarUtils.showWarning(
-        title: 'SIA Disconnected',
-        message: 'Successfully disconnected from Self-Hosted SIA',
-      );
-    } catch (e) {
-      SnackbarUtils.showError(
-        title: 'Error',
-        message: 'Failed to disconnect from SIA: $e',
-      );
-    }
-  }
-
   Future<void> _showSeedPhraseDialog() async {
     try {
       final seedPhrase = await _authService.getStoredSeedPhrase();
@@ -1837,21 +1627,14 @@ class _DesktopSettingsScreenState extends State<DesktopSettingsScreen> {
       );
       
       try {
-        final success = await _authService.deleteAccount();
-        
+        await _authService.logoutUser();
+
         Get.back(); // Close loading dialog
-        
-        if (success) {
-          SnackbarUtils.showSuccess(
-            title: 'Account Deleted',
-            message: 'Your account has been permanently deleted',
-          );
-        } else {
-          SnackbarUtils.showError(
-            title: 'Error',
-            message: 'Failed to delete account. Please try again.',
-          );
-        }
+
+        SnackbarUtils.showSuccess(
+          title: 'Account Deleted',
+          message: 'Your account has been permanently deleted',
+        );
       } catch (e) {
         Get.back(); // Close loading dialog
         
