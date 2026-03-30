@@ -12,9 +12,6 @@ import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/features/vault/services/renterd_uploader.dart';
 import 'package:decvault/features/settings/services/settings_service.dart';
 import 'package:decvault/features/vault/services/encryption_service.dart';
-import 'package:decvault/features/sia/services/sia_proxy_helper.dart';
-import 'package:decvault/config/api_config.dart';
-import 'package:decvault/core/utils/bucket_utils.dart';
 
 class BackupService extends GetxService {
   Box? _backupBox;
@@ -65,40 +62,44 @@ class BackupService extends GetxService {
   }
 
   /// Get backup bucket name based on user configuration
-  /// - DecVault: secure hashed bucket per user
-  /// - Self-hosted: shared 'securesphere-backup' bucket
+  /// - SecureSphere: user-specific backup bucket (user-backup-USERID)
+  /// - Self-hosted: user-specific backup bucket (user-backup-USERID)
   Future<String> _getBackupBucketName() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final backupOption = prefs.getString('backupOption') ?? 'DecVault';
-      
-      if (backupOption == 'DecVault') {
-        final authService = Get.find<AuthService>();
-        final userId = await authService.getUserId();
-        
-        if (userId != null && userId.isNotEmpty) {
-          return BucketUtils.getBackupBucketName(userId);
-        } else {
-          return 'securesphere-backup';
-        }
-      } else {
-        return 'securesphere-backup';
-      }
-    } catch (e) {
-      return 'securesphere-backup';
+    final prefs = await SharedPreferences.getInstance();
+    final backupOption = prefs.getString('backupOption') ?? 'SecureSphere';
+    final authService = Get.find<AuthService>();
+    final userId = await authService.getUserId();
+    if (userId == null || userId.isEmpty) {
+      throw Exception('Cannot determine backup bucket: user ID is not available');
+    }
+    if (backupOption == 'SecureSphere') {
+      // Use user ID as backup bucket for SecureSphere (secure isolation)
+      final bucketName = 'user-backup-$userId'; // S3-compliant naming
+      return bucketName;
+    } else {
+      // Self-hosted: use user-specific backup bucket (secure isolation)
+      final bucketName = 'user-backup-$userId'; // S3-compliant naming
+      return bucketName;
     }
   }
   
   Future<void> triggerBackup({String? customName, Function()? onBackupComplete}) async {
     try {
-     
       if (!_isInitialized) {
         await init();
       }
       if (_passwordRepository == null) {
         throw Exception('PasswordRepository is not initialized');
       }
-      // Get passwords from repository 
+
+      // Guard: refuse to attempt backup if no node host is configured.
+      final siaConfig = await _settingsService?.getSiaConfig();
+      if (siaConfig != null && siaConfig.ip.isEmpty) {
+        throw Exception(
+            'Sia node not configured. Please set up your node in Settings.');
+      }
+
+      // Get passwords from repository
       List<PasswordModel> passwords = [];
       try {
         passwords = await _passwordRepository!.getAllPasswords();
@@ -114,7 +115,7 @@ class BackupService extends GetxService {
       };
       await _saveLocalBackup(backupData, customName: customName);
       
-      // Always upload to SIA node (both DecVault and Self-hosted use SIA now)
+      // Always upload to SIA node (both SecureSphere and Self-hosted use SIA now)
       await _uploadToSiaNode(backupData, customName: customName);
       
       
@@ -235,20 +236,25 @@ class BackupService extends GetxService {
   /// Ensures the backup bucket exists in SIA using the correct API
   Future<void> _ensureBackupBucketExists(dynamic siaConfig, String bucketName) async {
     try {
+      // Skip bucket creation for default vault/securesphere-backup bucket if they exist
       if (bucketName == 'vault' || bucketName == 'securesphere-backup') {
-        return;
       }
       
       final client = http.Client();
-      final bucketsUrl = ApiConfig.siaProxyBuckets;
-      final headers = await SiaProxyHelper.getProxyHeaders();
       
+      final headers = {
+        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
+        'Content-Type': 'application/json',
+      };
+      
+      
+      // Use the correct API: POST /api/bus/buckets with name in JSON body
       final response = await client
           .post(
-            Uri.parse(bucketsUrl),
+            Uri.parse('${siaConfig.renterdUrl}/api/bus/buckets'),
             headers: headers,
             body: jsonEncode({
-              'bucket': bucketName,
+              'name': bucketName,
             }),
           )
           .timeout(const Duration(seconds: 600));
@@ -256,6 +262,7 @@ class BackupService extends GetxService {
       client.close();
       
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Small delay to ensure bucket propagation
         await Future.delayed(const Duration(milliseconds: 500));
       } else if (response.statusCode == 409) {
       } else {
@@ -273,9 +280,15 @@ class BackupService extends GetxService {
       final bytes = await file.readAsBytes();
       
       final client = http.Client();
+      
+      final headers = {
+        'Content-Type': 'application/octet-stream',
+        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
+      };
+      
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final uploadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
-      final headers = await SiaProxyHelper.getProxyHeadersForUpload();
+      final uploadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+      
       
       final response = await client
           .put(
@@ -318,7 +331,7 @@ class BackupService extends GetxService {
       }
       
       
-      // Both DecVault and Self-hosted now use SIA bucket approach
+      // Both SecureSphere and Self-hosted now use SIA bucket approach
       return await _getBackupsFromSiaBucket();
       
     } catch (e) {
@@ -358,13 +371,16 @@ class BackupService extends GetxService {
   /// List backup files from specific SIA bucket
   Future<List<Map<String, dynamic>>> _listBackupFilesFromBucket(dynamic siaConfig, String bucketName) async {
     try {
+      
       final client = http.Client();
-      final listUrl = ApiConfig.siaProxyList;
-      final headers = await SiaProxyHelper.getProxyHeaders();
+      
+      final headers = {
+        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
+      };
       
       final response = await client
           .get(
-            Uri.parse(listUrl),
+            Uri.parse('${siaConfig.renterdUrl}/api/bus/objects/?bucket=$bucketName'),
             headers: headers,
           )
           .timeout(const Duration(seconds: 600));
@@ -445,7 +461,6 @@ class BackupService extends GetxService {
       }
       
       
-      // Check if this is an encrypted backup by looking for the original filename
       // First get the list of backups to find the actual filename
       final backups = await getBackups();
       String actualFilename = backupKey;
@@ -458,10 +473,9 @@ class BackupService extends GetxService {
         }
       }
       
-      // Both DecVault and Self-hosted now use SIA with different buckets
+      // Both SecureSphere and Self-hosted now use SIA with different buckets
       await _downloadBackupFromSia(actualFilename);
       
-      // Load the downloaded backup data
       final backupData = _lastDownloadedBackup;
       if (backupData == null) {
         throw Exception('[SIA] Backup data is null');
@@ -521,7 +535,6 @@ class BackupService extends GetxService {
       // Download backup file from SIA bucket
       final backupData = await _downloadBackupFromSpecificBucket(filename, siaConfig, bucketName);
       
-      // Store the downloaded backup data
       _lastDownloadedBackup = backupData;
       
       
@@ -533,10 +546,16 @@ class BackupService extends GetxService {
   /// Download backup file from specific SIA bucket and decrypt it
   Future<Map<String, dynamic>> _downloadBackupFromSpecificBucket(String filename, dynamic siaConfig, String bucketName) async {
     try {
+      
       final client = http.Client();
+      
+      final headers = {
+        'Authorization': 'Basic ${base64Encode(utf8.encode(':${siaConfig.apiPassword}'))}',
+      };
+      
       final cleanFilename = filename.startsWith('/') ? filename.substring(1) : filename;
-      final downloadUrl = ApiConfig.siaProxyObjectsPath(cleanFilename);
-      final headers = await SiaProxyHelper.getProxyHeadersForDownload();
+      final downloadUrl = '${siaConfig.renterdUrl}/api/worker/object/$cleanFilename?bucket=$bucketName';
+      
       
       final response = await client
           .get(
@@ -549,7 +568,6 @@ class BackupService extends GetxService {
       
       if (response.statusCode == 200) {
         
-        // Check if this is an encrypted backup or legacy plain backup
         final responseBytes = response.bodyBytes;
         
         // Try to decrypt if it looks like an encrypted backup
@@ -576,7 +594,6 @@ class BackupService extends GetxService {
   /// Checks if downloaded data is an encrypted backup
   bool _isEncryptedBackup(Uint8List data) {
     // Encrypted backups have: [IV:16bytes][metadata_length:4bytes][metadata][encrypted_data]
-    // Check if the data is at least long enough to contain IV + length
     return data.length >= 20; // 16 bytes for IV + 4 bytes for metadata length
   }
 

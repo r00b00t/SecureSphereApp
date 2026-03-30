@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:decvault/features/password/models/password_model.dart';
 import 'package:decvault/features/password/repositories/password_repository.dart';
-import 'package:decvault/features/password/screens/add_password_screen.dart';
 import 'package:decvault/features/password/screens/desktop_add_password_screen.dart';
 import 'package:decvault/core/utils/snackbar_utils.dart';
 

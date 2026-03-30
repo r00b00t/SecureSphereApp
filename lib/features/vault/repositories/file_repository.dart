@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -101,7 +100,6 @@ class FileRepository {
     Function(double progress)? onProgress,
   }) async {
     try {
-      debugPrint('[FileRepository] Starting file upload: $originalName');
       onProgress?.call(5.0);
       
       // Check file size and storage limit
@@ -147,11 +145,8 @@ class FileRepository {
       await saveFile(fileModel);
       onProgress?.call(70.0);
       
-      debugPrint('[FileRepository] File saved locally, checking SIA availability');
-      
       // Check if SIA upload is available and upload automatically
       if (isSiaUploadAvailable) {
-        debugPrint('[FileRepository] Starting SIA upload');
         try {
           onProgress?.call(75.0);
           
@@ -166,11 +161,7 @@ class FileRepository {
           fileModel.tags = [...fileModel.tags, 'sia-uploaded'];
           await saveFile(fileModel);
           
-          debugPrint('[FileRepository] SIA upload successful');
-          
         } catch (e) {
-          // SIA upload failed, but local upload succeeded
-          debugPrint('[FileRepository] SIA upload failed: $e');
           
           // Still save the file locally even if SIA upload failed
           fileModel.tags = [...fileModel.tags, 'sia-upload-failed'];
@@ -183,11 +174,8 @@ class FileRepository {
       }
       
       onProgress?.call(100.0);
-      debugPrint('[FileRepository] Upload complete');
       return fileModel;
-      
     } catch (e) {
-      debugPrint('[FileRepository] Upload error: $e');
       rethrow;
     }
   }

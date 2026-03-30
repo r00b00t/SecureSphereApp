@@ -7,9 +7,6 @@ import 'package:decvault/features/subscription/services/revenuecat_service.dart'
 import 'package:decvault/core/utils/snackbar_utils.dart';
 import 'package:decvault/features/subscription/widgets/pro_feature_gate.dart';
 
-// ============================================================================
-// EXAMPLE 1: Simple Pro Status Check
-// ============================================================================
 class Example1ProStatusCheck extends StatelessWidget {
   const Example1ProStatusCheck({super.key});
 
@@ -53,9 +50,6 @@ class Example1ProStatusCheck extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 2: Feature Gating with ProFeatureGate Widget
-// ============================================================================
 class Example2FeatureGating extends StatelessWidget {
   const Example2FeatureGating({super.key});
 
@@ -83,9 +77,6 @@ class AdvancedAnalyticsScreen extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 3: Manual Pro Check with Dialog
-// ============================================================================
 class Example3ManualCheck extends StatelessWidget {
   const Example3ManualCheck({super.key});
 
@@ -118,9 +109,6 @@ class Example3ManualCheck extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 4: Using ProGatedButton
-// ============================================================================
 class Example4ProGatedButton extends StatelessWidget {
   const Example4ProGatedButton({super.key});
 
@@ -160,9 +148,6 @@ class Example4ProGatedButton extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 5: Restore Purchases
-// ============================================================================
 class Example5RestorePurchases extends StatelessWidget {
   const Example5RestorePurchases({super.key});
 
@@ -203,9 +188,6 @@ class Example5RestorePurchases extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 6: Customer Center
-// ============================================================================
 class Example6CustomerCenter extends StatelessWidget {
   const Example6CustomerCenter({super.key});
 
@@ -242,9 +224,6 @@ class Example6CustomerCenter extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 7: Conditional UI Based on Pro Status
-// ============================================================================
 class Example7ConditionalUI extends StatelessWidget {
   const Example7ConditionalUI({super.key});
 
@@ -323,9 +302,6 @@ class Example7ConditionalUI extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 8: User Identification
-// ============================================================================
 class Example8UserIdentification extends StatelessWidget {
   const Example8UserIdentification({super.key});
 
@@ -390,9 +366,6 @@ class Example8UserIdentification extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 9: Getting Subscription Details
-// ============================================================================
 class Example9SubscriptionDetails extends StatelessWidget {
   const Example9SubscriptionDetails({super.key});
 
@@ -446,9 +419,6 @@ class Example9SubscriptionDetails extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// EXAMPLE 10: Refresh Customer Info
-// ============================================================================
 class Example10RefreshCustomerInfo extends StatelessWidget {
   const Example10RefreshCustomerInfo({super.key});
 

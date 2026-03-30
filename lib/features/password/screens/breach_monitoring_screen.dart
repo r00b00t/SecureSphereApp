@@ -77,7 +77,8 @@ class _BreachMonitoringScreenState extends State<BreachMonitoringScreen> {
       List<Map<String, dynamic>> results = [];
       for (final email in emails) {
         final url = Uri.parse('${ApiConfig.checkEmailBreachEndpoint}?email=$email');
-        final response = await http.get(url);
+        final response = await http.get(url)
+            .timeout(const Duration(seconds: 15));
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           results.add({

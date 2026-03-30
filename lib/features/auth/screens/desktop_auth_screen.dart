@@ -5,10 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:decvault/features/auth/services/auth_service.dart';
 import 'package:decvault/features/auth/services/qr_login_service.dart';
 import 'package:decvault/features/auth/screens/pin_setup_screen.dart';
-import 'package:decvault/features/auth/screens/seed_phrase_screen.dart';
-import 'package:decvault/features/auth/screens/pin_unlock_screen.dart';
-import 'package:decvault/features/auth/services/security_service.dart';
-import 'package:decvault/common/widgets/custom_title_bar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DesktopAuthScreen extends StatefulWidget {
   const DesktopAuthScreen({super.key});
@@ -22,25 +19,22 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   final PageController _pageController = PageController();
   late final QrLoginService _qrLoginService;
   
-  SecurityService? get _securityService {
-    try {
-      return Get.find<SecurityService>();
-    } catch (e) {
-      return null;
-    }
-  }
-  
   bool _isLoading = false;
   int _currentStep = 0;
-  
+
+  // Path choice (shown before sign-in/create tabs when onboarding is incomplete)
+  bool _showingPathChoice = false;
+
   // Login form
   final _seedPhraseController = TextEditingController();
   final _seedPhraseFocusNode = FocusNode();
-  
+
   // Create account form
   final _createSeedController = TextEditingController();
+  bool _seedPhraseVisible = true;
+  bool _seedPhraseConfirmed = false;
   bool _isCreatingAccount = false;
-  
+
   // QR code login
   bool _showQrLogin = false;
   String? _qrData;
@@ -48,30 +42,10 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   @override
   void initState() {
     super.initState();
-    _qrLoginService = Get.find<QrLoginService>();
+    _qrLoginService = Get.put(QrLoginService());
     _setupKeyboardShortcuts();
-    _checkLoggedInStatus();
     _checkExistingUser();
-  }
-  
-  Future<void> _checkLoggedInStatus() async {
-    final isLoggedIn = await _authService.checkLoginStatus();
-    if (isLoggedIn) {
-      // Quick check if PIN authentication might be required
-      final securityService = _securityService;
-      if (securityService != null && securityService.hasSecurityEnabled && securityService.isAppLocked) {
-        // Show PIN unlock screen instead of navigating to home
-        Get.dialog(
-          const PinUnlockScreen(),
-          barrierDismissible: false,
-          barrierColor: Colors.black87,
-        );
-        return;
-      }
-      
-      // No PIN required - navigate immediately to home
-      Get.offAllNamed('/home');
-    }
+    _checkOnboardingStatus();
   }
 
   @override
@@ -121,19 +95,36 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
         });
       }
     } catch (e) {
+      // ignore
     }
+  }
+
+  Future<void> _checkOnboardingStatus() async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    final prefs = await SharedPreferences.getInstance();
+    final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+    if (!onboardingComplete && mounted) {
+      setState(() => _showingPathChoice = true);
+    }
+  }
+
+  Future<void> _chooseManaged() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('app_mode', 'managed');
+    await prefs.setBool('onboarding_complete', true);
+    if (mounted) setState(() => _showingPathChoice = false);
+  }
+
+  Future<void> _goBackToPathChoice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('app_mode');
+    await prefs.remove('onboarding_complete');
+    if (mounted) setState(() => _showingPathChoice = true);
   }
 
   void _proceedToLogin() {
     if (_seedPhraseController.text.trim().isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please enter your seed phrase'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      Get.snackbar('Error', 'Please enter your seed phrase');
       return;
     }
     
@@ -165,27 +156,15 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
 
     try {
       final seedPhrase = await _authService.generateAndStoreSeedPhrase();
-      
-      if (seedPhrase == null || seedPhrase.isEmpty) {
-        throw Exception('Generated seed phrase is null or empty');
-      }
-      
       setState(() {
-        _createSeedController.text = seedPhrase;
+        _createSeedController.text = seedPhrase ?? '';
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to generate seed phrase: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      Get.snackbar('Error', 'Failed to generate seed phrase: $e');
     }
   }
 
@@ -202,57 +181,33 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       });
 
       if (success) {
-        // Mark initial setup as complete after successful login
-        try {
-          final securityService = Get.find<SecurityService>();
-          await securityService.markInitialSetupComplete();
-        } catch (e) {
-          // SecurityService not available, continue anyway
+        // Check if PIN setup is needed (simplified check)
+        final hasPin = await _authService.checkLoginStatus();
+        if (hasPin) {
+          Get.offAllNamed('/home');
+        } else {
+          Get.offAll(() => const PinSetupScreen());
         }
-        
-        // Always navigate to home - PIN setup will be prompted there if needed
-        Get.offAllNamed('/home');
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Invalid seed phrase. Please try again.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        Get.snackbar('Error', 'Invalid seed phrase. Please try again.');
         _goBack();
       }
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Login failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      Get.snackbar('Error', 'Login failed: $e');
       _goBack();
     }
   }
 
   Future<void> _createAccount() async {
-    // Prevent duplicate clicks
-    if (_isLoading) {
-      return;
-    }
-    
     setState(() {
       _isLoading = true;
     });
 
     try {
       final success = await _authService.registerUser(_createSeedController.text.trim());
-      
-      if (!mounted) return;
       
       setState(() {
         _isLoading = false;
@@ -261,39 +216,15 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       if (success) {
         Get.offAll(() => const PinSetupScreen());
       } else {
-        // Registration failed - generate a new seed phrase for next attempt
-        await _generateSeedPhrase();
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to create account. Please try again with the new seed phrase shown.'),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
+        Get.snackbar('Error', 'Failed to create account');
+        _goBack();
       }
     } catch (e) {
-      
-      if (!mounted) return;
-      
       setState(() {
         _isLoading = false;
       });
-      
-      // Generate a new seed phrase for next attempt
-      await _generateSeedPhrase();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Account creation failed: ${e.toString()}. Please try again with the new seed phrase.'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
+      Get.snackbar('Error', 'Account creation failed: $e');
+      _goBack();
     }
   }
 
@@ -311,14 +242,12 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
 
   void _copySeedPhrase() {
     Clipboard.setData(ClipboardData(text: _createSeedController.text));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Seed phrase copied to clipboard'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
+    Get.snackbar(
+      'Copied',
+      'Seed phrase copied to clipboard',
+      snackPosition: SnackPosition.BOTTOM,
+      duration: const Duration(seconds: 2),
+    );
   }
 
   Future<void> _generateQrCode() async {
@@ -335,14 +264,11 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
     });
 
     if (qrData == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to generate QR code. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      Get.snackbar(
+        'Error',
+        'Failed to generate QR code. Please try again.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
       setState(() {
         _showQrLogin = false;
       });
@@ -359,40 +285,33 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
-        children: [
-          const CustomTitleBar(backgroundColor: Color(0xFF0F0F0F)),
-          Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF0F0F0F),
-                    Color(0xFF1A1A1A),
-                    Color(0xFF0F0F0F),
-                  ],
-                ),
-              ),
-              child: Row(
-                children: [
-                  // Left Panel - Branding
-                  Expanded(
-                    flex: 5,
-                    child: _buildBrandingPanel(),
-                  ),
-                  
-                  // Right Panel - Authentication
-                  Expanded(
-                    flex: 4,
-                    child: _buildAuthPanel(),
-                  ),
-                ],
-              ),
-            ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0F0F0F),
+              Color(0xFF1A1A1A),
+              Color(0xFF0F0F0F),
+            ],
           ),
-        ],
+        ),
+        child: Row(
+          children: [
+            // Left Panel - Branding
+            Expanded(
+              flex: 5,
+              child: _buildBrandingPanel(),
+            ),
+            
+            // Right Panel - Authentication
+            Expanded(
+              flex: 4,
+              child: _buildAuthPanel(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -400,24 +319,25 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   Widget _buildBrandingPanel() {
     return Container(
       padding: const EdgeInsets.all(48),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           // Logo and Title
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1E8E3E), Color(0xFF34A853)],
+                  ),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Image.asset(
-                  'assets/logo/green.png',
-                  width: 56,
-                  height: 56,
+                child: const Icon(
+                  Icons.security,
+                  color: Colors.white,
+                  size: 32,
                 ),
               ),
               const SizedBox(width: 20),
@@ -529,7 +449,6 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
             ),
           ),
         ],
-        ),
       ),
     );
   }
@@ -559,6 +478,9 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   }
 
   Widget _buildWelcomePage() {
+    // Show path choice before sign-in/create tabs when onboarding is not done.
+    if (_showingPathChoice) return _buildPathChoicePage();
+
     // Show QR code login screen if enabled
     if (_showQrLogin) {
       return _buildQrLoginScreen();
@@ -567,6 +489,16 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _goBackToPathChoice,
+            icon: const Icon(Icons.arrow_back, size: 16, color: Colors.white54),
+            label: const Text('Back', style: TextStyle(color: Colors.white54, fontSize: 14)),
+            style: TextButton.styleFrom(padding: EdgeInsets.zero),
+          ),
+        ),
+        const SizedBox(height: 8),
         Text(
           _isCreatingAccount ? 'Create New Vault' : 'Welcome Back',
           style: const TextStyle(
@@ -751,6 +683,86 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
     );
   }
 
+  Widget _buildPathChoicePage() {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [Color(0xFF1E8E3E), Color(0xFF34A853)]),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.security, color: Colors.white, size: 32),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Welcome to DecVault',
+            style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                color: Colors.white),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Choose how you want to get started.',
+            style: TextStyle(fontSize: 15, color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 28),
+
+          // ── Set it up for me ──────────────────────────────────────────
+          _DesktopPathCard(
+            icon: Icons.cloud_outlined,
+            iconColor: const Color(0xFF4285F4),
+            title: 'Set it up for me',
+            subtitle:
+                'DecVault manages the storage for you. Quick setup — just create an account.',
+            onTap: _chooseManaged,
+          ),
+          const SizedBox(height: 14),
+
+          // ── I have a Sia node ─────────────────────────────────────────
+          _DesktopPathCard(
+            icon: Icons.dns_outlined,
+            iconColor: const Color(0xFF1E8E3E),
+            title: 'I have a Sia node',
+            subtitle:
+                'Fully decentralized. Your data stays on your own renterd node. '
+                'No account, no backend.',
+            onTap: () => Get.toNamed('/decentralized-node-setup'),
+          ),
+          const SizedBox(height: 14),
+
+          // ── Already set up on another device ─────────────────────────
+          _DesktopPathCard(
+            icon: Icons.devices_outlined,
+            iconColor: const Color(0xFFF57C00),
+            title: 'Already set up on another device',
+            subtitle:
+                'Import your configuration by scanning a QR code or entering '
+                'your seed phrase.',
+            onTap: () => Get.toNamed('/device-pairing-import'),
+          ),
+
+          const SizedBox(height: 24),
+          Text(
+            'You can change this later in Settings.',
+            style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.45)),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
   Widget _buildQrLoginScreen() {
     return SingleChildScrollView(
       child: Column(
@@ -908,96 +920,174 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
   }
 
   Widget _buildSeedPhraseDisplay() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Text(
-          'Your Recovery Phrase',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+    final words = _createSeedController.text.trim().split(' ');
+    final hasWords = words.length == 12 && words.first.isNotEmpty;
+
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Your Recovery Phrase',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        const Text(
-          'Write down these 12 words in order and store them safely. You\'ll need this phrase to recover your account.',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.white70,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        
-        const SizedBox(height: 24),
-        
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF2C2C2C),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFF3C4043)),
-          ),
-          child: Column(
-            children: [
-              TextField(
-                controller: _createSeedController,
-                maxLines: 4,
-                readOnly: true,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Generating seed phrase...',
+
+          const SizedBox(height: 12),
+
+          // Warning banner
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.withOpacity(0.5)),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: Colors.orange, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Write these 12 words down in order and store them safely. '
+                    'This is the only way to recover your account — we cannot retrieve it for you.',
+                    style: TextStyle(color: Colors.orange, fontSize: 13),
+                  ),
                 ),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontFamily: 'monospace',
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Numbered word grid
+          if (!hasWords)
+            const Center(child: CircularProgressIndicator())
+          else if (_seedPhraseVisible)
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate:
+                  const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 2.8,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
+              ),
+              itemCount: 12,
+              itemBuilder: (context, index) {
+                return Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2C2C2C),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF3C4043)),
+                  ),
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: RichText(
+                    text: TextSpan(children: [
+                      TextSpan(
+                        text: '${index + 1}. ',
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 11),
+                      ),
+                      TextSpan(
+                        text: words[index],
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ]),
+                  ),
+                );
+              },
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              alignment: Alignment.center,
+              child: const Text(
+                'Seed phrase hidden',
+                style: TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            ),
+
+          const SizedBox(height: 10),
+
+          // Copy / Show-Hide row
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _copySeedPhrase,
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _copySeedPhrase,
-                      icon: const Icon(Icons.copy, size: 18),
-                      label: const Text('Copy'),
-                    ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () =>
+                      setState(() => _seedPhraseVisible = !_seedPhraseVisible),
+                  icon: Icon(
+                    _seedPhraseVisible
+                        ? Icons.visibility_off
+                        : Icons.visibility,
+                    size: 16,
                   ),
-                ],
+                  label: Text(_seedPhraseVisible ? 'Hide' : 'Show'),
+                ),
               ),
             ],
           ),
-        ),
-        
-        const SizedBox(height: 32),
-        
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _isLoading ? null : _goBack,
-                child: const Text('Back'),
-              ),
+
+          const SizedBox(height: 12),
+
+          // Confirmation checkbox
+          CheckboxListTile(
+            value: _seedPhraseConfirmed,
+            onChanged: (v) =>
+                setState(() => _seedPhraseConfirmed = v ?? false),
+            title: const Text(
+              'I have written down my seed phrase',
+              style: TextStyle(fontSize: 13, color: Colors.white),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 2,
-              child: ElevatedButton(
-                onPressed: (_createSeedController.text.isNotEmpty && !_isLoading) ? _createAccount : null,
-                child: _isLoading 
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Continue'),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+          ),
+
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _goBack,
+                  child: const Text('Back'),
+                ),
               ),
-            ),
-          ],
-        ),
-      ],
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  onPressed: (_createSeedController.text.isNotEmpty &&
+                          _seedPhraseConfirmed)
+                      ? _createAccount
+                      : null,
+                  child: const Text('Continue'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1032,4 +1122,90 @@ class _DesktopAuthScreenState extends State<DesktopAuthScreen> {
       ],
     );
   }
-} 
+}
+
+// ── Path-choice card (hover-aware) ────────────────────────────────────────────
+
+class _DesktopPathCard extends StatefulWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _DesktopPathCard({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  State<_DesktopPathCard> createState() => _DesktopPathCardState();
+}
+
+class _DesktopPathCardState extends State<_DesktopPathCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color:
+                _hovered ? const Color(0xFF353535) : const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color:
+                  _hovered ? const Color(0xFF34A853) : const Color(0xFF3C4043),
+              width: _hovered ? 1.5 : 1.0,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(widget.icon, size: 28, color: widget.iconColor),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.subtitle,
+                      style: const TextStyle(
+                          fontSize: 13, color: Colors.white60),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 14,
+                color: _hovered
+                    ? const Color(0xFF34A853)
+                    : Colors.white38,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

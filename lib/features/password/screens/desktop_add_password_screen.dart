@@ -183,21 +183,14 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
         final url = Uri.parse('${ApiConfig.checkPasswordBreachEndpoint}?password=${Uri.encodeComponent(passwordText)}');
         final response = await http.get(url).timeout(const Duration(seconds: 10));
         
-        print('Breach check response status: ${response.statusCode}');
-        print('Breach check response body: ${response.body}');
-        
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           breachCount = data['count'] ?? 0;
           breached = breachCount > 0;
-          
-          print('Breach check - count: $breachCount, breached: $breached');
         } else {
-          print('Breach check failed with status: ${response.statusCode}');
           breachCheckFailed = true;
         }
       } catch (e) {
-        print('Breach check error: $e');
         breachCheckFailed = true;
         // Continue with saving even if breach check fails
       }
@@ -809,7 +802,7 @@ class _DesktopAddPasswordScreenState extends State<DesktopAddPasswordScreen> {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('📋 Copied: Password copied to clipboard'),
+                            content: Text('Copied: Password copied to clipboard'),
                             duration: Duration(seconds: 2),
                           ),
                         );
