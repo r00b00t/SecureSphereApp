@@ -92,6 +92,7 @@ lib/generated_plugin_registrant.dart
 **/windows/**/generated_plugins.cmake
 **/windows/flutter/generated_plugin_registrant.cc
 **/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/ephemeral/
 
 # Linux related
 **/linux/**/generated_plugin_registrant.cc
@@ -99,10 +100,14 @@ lib/generated_plugin_registrant.dart
 **/linux/**/generated_plugins.cmake
 **/linux/flutter/generated_plugin_registrant.cc
 **/linux/flutter/generated_plugin_registrant.h
+**/linux/flutter/ephemeral/
 
 # macOS related
 **/macos/**/GeneratedPluginRegistrant.swift
 **/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+**/macos/Podfile.lock
 
 # Coverage
 coverage/
